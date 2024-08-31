@@ -3,6 +3,7 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/rezmoss/axios4go.svg)](https://pkg.go.dev/github.com/rezmoss/axios4go)
 [![Go Report Card](https://goreportcard.com/badge/github.com/rezmoss/axios4go)](https://goreportcard.com/report/github.com/rezmoss/axios4go)
 [![Release](https://img.shields.io/github/v/release/rezmoss/axios4go.svg?style=flat-square)](https://github.com/rezmoss/axios4go/releases)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/9401/badge)](https://www.bestpractices.dev/projects/9401)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 axios4go is a Go HTTP client library inspired by Axios, providing a simple and intuitive API for making HTTP requests. It offers features like JSON handling, configurable instances, and support for various HTTP methods.
