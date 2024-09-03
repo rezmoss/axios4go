@@ -683,3 +683,27 @@ func TestPatch(t *testing.T) {
 		}
 	})
 }
+
+func TestValidateStatus(t *testing.T) {
+	server := setupTestServer()
+	defer server.Close()
+	reqOptions := &requestOptions{
+		validateStatus: func(StatusCode int) bool {
+			if StatusCode == 200 {
+				return false
+			}
+			return true
+		},
+	}
+
+	t.Run("Simple Style", func(t *testing.T) {
+		response, err := Get(server.URL+"/get", reqOptions)
+		if err == nil {
+			t.Fatalf("Expected error, got %v", err)
+		}
+
+		if response.StatusCode == http.StatusOK {
+			t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
+		}
+	})
+}

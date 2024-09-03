@@ -49,6 +49,7 @@ type requestOptions struct {
 	maxContentLength int
 	maxBodyLength    int
 	decompress       bool
+	validateStatus   func(int) bool
 }
 
 type auth struct {
@@ -355,6 +356,10 @@ func (c *Client) Request(options *requestOptions) (*Response, error) {
 		return nil, errors.New("response content length exceeded maxContentLength")
 	}
 
+	if !options.validateStatus(resp.StatusCode) {
+		return nil, fmt.Errorf("Request failed with status code: %v", resp.StatusCode)
+	}
+
 	return &Response{
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
@@ -401,6 +406,9 @@ func mergeOptions(dst, src *requestOptions) {
 	}
 	if src.maxBodyLength != 0 {
 		dst.maxBodyLength = src.maxBodyLength
+	}
+	if src.validateStatus != nil {
+		dst.validateStatus = src.validateStatus
 	}
 	dst.decompress = src.decompress
 }
