@@ -244,6 +244,7 @@ func Request(method, urlStr string, options ...*requestOptions) (*Response, erro
 		maxBodyLength:    2000,
 		maxRedirects:     21,
 		decompress:       true,
+		validateStatus:   nil,
 	}
 
 	if len(options) > 0 && options[0] != nil {
@@ -356,7 +357,7 @@ func (c *Client) Request(options *requestOptions) (*Response, error) {
 		return nil, errors.New("response content length exceeded maxContentLength")
 	}
 
-	if !options.validateStatus(resp.StatusCode) {
+	if options.validateStatus != nil && !(options.validateStatus(resp.StatusCode)) {
 		return nil, fmt.Errorf("Request failed with status code: %v", resp.StatusCode)
 	}
 

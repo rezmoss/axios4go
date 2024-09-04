@@ -698,12 +698,63 @@ func TestValidateStatus(t *testing.T) {
 
 	t.Run("Simple Style", func(t *testing.T) {
 		response, err := Get(server.URL+"/get", reqOptions)
-		if err == nil {
+		if err == nil || response != nil {
 			t.Fatalf("Expected error, got %v", err)
 		}
-
-		if response.StatusCode == http.StatusOK {
-			t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
+		if err.Error() != "Request failed with status code: 200" {
+			t.Errorf("Expected error Request failed with status code: 200, got %v", err.Error())
 		}
 	})
+
+	t.Run("Promise Style", func(t *testing.T) {
+		finallyExecuted := false
+		thenExecuted := false
+
+		done := make(chan bool)
+
+		go func() {
+			GetAsync(server.URL+"/get", reqOptions).
+				Then(func(response *Response) {
+					if response != nil {
+						t.Fatalf("Expected error, got %v", response)
+					}
+					thenExecuted = true
+				}).
+				Catch(func(err error) {
+					if err == nil {
+						t.Fatalf("Expected error, got %v", err)
+					}
+					if err.Error() != "Request failed with status code: 200" {
+						t.Errorf("Expected error Request failed with status code: 200, got %v", err.Error())
+					}
+				}).
+				Finally(func() {
+					finallyExecuted = true
+					done <- true
+				})
+		}()
+
+		select {
+		case <-done:
+			if !finallyExecuted {
+				t.Error("Finally was not executed")
+			}
+			if thenExecuted {
+				t.Error("Then was executed")
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("Test timed out after 5 seconds")
+		}
+	})
+
+	t.Run("Request Style", func(t *testing.T) {
+		response, err := Request("GET", server.URL+"/get", reqOptions)
+		if err == nil || response != nil {
+			t.Fatalf("Expected error, got %v", err)
+		}
+		if err.Error() != "Request failed with status code: 200" {
+			t.Errorf("Expected error Request failed with status code: 200, got %v", err.Error())
+		}
+	})
+
 }
