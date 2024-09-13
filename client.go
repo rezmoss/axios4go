@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -307,13 +308,25 @@ func (c *Client) Request(options *requestOptions) (*Response, error) {
 	}
 
 	var bodyReader io.Reader
+	var bodyLength int64
+
 	if options.body != nil {
-		jsonBody, err := json.Marshal(options.body)
-		if err != nil {
-			return nil, err
+		switch v := options.body.(type) {
+		case string:
+			bodyReader = strings.NewReader(v)
+			bodyLength = int64(len(v))
+		case []byte:
+			bodyReader = bytes.NewReader(v)
+			bodyLength = int64(len(v))
+		default:
+			jsonBody, err := json.Marshal(options.body)
+			if err != nil {
+				return nil, err
+			}
+			bodyReader = bytes.NewBuffer(jsonBody)
+			bodyLength = int64(len(jsonBody))
 		}
-		bodyReader = bytes.NewBuffer(jsonBody)
-		if options.maxBodyLength > 0 && len(jsonBody) > options.maxBodyLength {
+		if options.maxBodyLength > 0 && bodyLength > int64(options.maxBodyLength) {
 			return nil, errors.New("request body length exceeded maxBodyLength")
 		}
 	}
