@@ -194,8 +194,12 @@ func Delete(urlStr string, options ...*requestOptions) (*Response, error) {
 }
 
 func DeleteAsync(urlStr string, options ...*requestOptions) *Promise {
-	resp, err := Request("DELETE", urlStr, options...)
-	return &Promise{response: resp, err: err}
+	promise := NewPromise()
+	go func() {
+		resp, err := Request("DELETE", urlStr, options...)
+		promise.resolve(resp, err)
+	}()
+	return promise
 }
 
 func Head(urlStr string, options ...*requestOptions) (*Response, error) {
@@ -203,8 +207,12 @@ func Head(urlStr string, options ...*requestOptions) (*Response, error) {
 }
 
 func HeadAsync(urlStr string, options ...*requestOptions) *Promise {
-	resp, err := Request("HEAD", urlStr, options...)
-	return &Promise{response: resp, err: err}
+	promise := NewPromise()
+	go func() {
+		resp, err := Request("HEAD", urlStr, options...)
+		promise.resolve(resp, err)
+	}()
+	return promise
 }
 
 func Options(urlStr string, options ...*requestOptions) (*Response, error) {
@@ -212,8 +220,12 @@ func Options(urlStr string, options ...*requestOptions) (*Response, error) {
 }
 
 func OptionsAsync(urlStr string, options ...*requestOptions) *Promise {
-	resp, err := Request("OPTIONS", urlStr, options...)
-	return &Promise{response: resp, err: err}
+	promise := NewPromise()
+	go func() {
+		resp, err := Request("OPTIONS", urlStr, options...)
+		promise.resolve(resp, err)
+	}()
+	return promise
 }
 
 func Patch(urlStr string, body interface{}, options ...*requestOptions) (*Response, error) {
