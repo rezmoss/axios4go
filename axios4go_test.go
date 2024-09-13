@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 )
 
 func setupTestServer() *httptest.Server {
@@ -57,48 +56,29 @@ func TestGet(t *testing.T) {
 	})
 
 	t.Run("Promise Style", func(t *testing.T) {
-		finallyExecuted := false
-		thenExecuted := false
+		promise := GetAsync(server.URL + "/get")
+		var thenExecuted, finallyExecuted bool
 
-		done := make(chan bool)
+		promise.
+			Then(func(response *Response) {
+				// Assertions...
+				thenExecuted = true
+			}).
+			Catch(func(err error) {
+				t.Errorf("Expected no error, got %v", err)
+			}).
+			Finally(func() {
+				finallyExecuted = true
+			})
 
-		go func() {
-			GetAsync(server.URL + "/get").
-				Then(func(response *Response) {
-					if response.StatusCode != http.StatusOK {
-						t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
-					}
+		// Wait for the promise to complete
+		<-promise.done
 
-					var result map[string]string
-					err := json.Unmarshal(response.Body, &result)
-					if err != nil {
-						t.Errorf("Error unmarshaling response body: %v", err)
-					}
-
-					if result["message"] != "get success" {
-						t.Errorf("Expected message 'get success', got '%s'", result["message"])
-					}
-					thenExecuted = true
-				}).
-				Catch(func(err error) {
-					t.Errorf("Expected no error, got %v", err)
-				}).
-				Finally(func() {
-					finallyExecuted = true
-					done <- true
-				})
-		}()
-
-		select {
-		case <-done:
-			if !finallyExecuted {
-				t.Error("Finally was not executed")
-			}
-			if !thenExecuted {
-				t.Error("Then was not executed")
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("Test timed out after 5 seconds")
+		if !thenExecuted {
+			t.Error("Then was not executed")
+		}
+		if !finallyExecuted {
+			t.Error("Finally was not executed")
 		}
 	})
 
@@ -151,49 +131,44 @@ func TestPost(t *testing.T) {
 	})
 
 	t.Run("Promise Style", func(t *testing.T) {
-		finallyExecuted := false
-		thenExecuted := false
+		body := map[string]string{"key": "value"}
 
-		done := make(chan bool)
+		promise := PostAsync(server.URL+"/post", body)
 
-		go func() {
-			body := map[string]string{"key": "value"}
-			PostAsync(server.URL+"/post", body).
-				Then(func(response *Response) {
-					if response.StatusCode != http.StatusOK {
-						t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
-					}
+		var thenExecuted, finallyExecuted bool
 
-					var result map[string]string
-					err := json.Unmarshal(response.Body, &result)
-					if err != nil {
-						t.Errorf("Error unmarshaling response body: %v", err)
-					}
+		promise.
+			Then(func(response *Response) {
+				if response.StatusCode != http.StatusOK {
+					t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
+				}
 
-					if result["message"] != "post success" {
-						t.Errorf("Expected message 'post success', got '%s'", result["message"])
-					}
-					thenExecuted = true
-				}).
-				Catch(func(err error) {
-					t.Errorf("Expected no error, got %v", err)
-				}).
-				Finally(func() {
-					finallyExecuted = true
-					done <- true
-				})
-		}()
+				var result map[string]string
+				err := json.Unmarshal(response.Body, &result)
+				if err != nil {
+					t.Errorf("Error unmarshaling response body: %v", err)
+				}
 
-		select {
-		case <-done:
-			if !finallyExecuted {
-				t.Error("Finally was not executed")
-			}
-			if !thenExecuted {
-				t.Error("Then was not executed")
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("Test timed out after 5 seconds")
+				if result["message"] != "post success" {
+					t.Errorf("Expected message 'post success', got '%s'", result["message"])
+				}
+				thenExecuted = true
+			}).
+			Catch(func(err error) {
+				t.Errorf("Expected no error, got %v", err)
+			}).
+			Finally(func() {
+				finallyExecuted = true
+			})
+
+		// Wait for the promise to complete
+		<-promise.done
+
+		if !thenExecuted {
+			t.Error("Then was not executed")
+		}
+		if !finallyExecuted {
+			t.Error("Finally was not executed")
 		}
 	})
 
@@ -247,49 +222,44 @@ func TestPut(t *testing.T) {
 	})
 
 	t.Run("Promise Style", func(t *testing.T) {
-		finallyExecuted := false
-		thenExecuted := false
+		body := map[string]string{"key": "updated_value"}
 
-		done := make(chan bool)
+		promise := PutAsync(server.URL+"/put", body)
 
-		go func() {
-			body := map[string]string{"key": "updated_value"}
-			PutAsync(server.URL+"/put", body).
-				Then(func(response *Response) {
-					if response.StatusCode != http.StatusOK {
-						t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
-					}
+		var thenExecuted, finallyExecuted bool
 
-					var result map[string]string
-					err := json.Unmarshal(response.Body, &result)
-					if err != nil {
-						t.Errorf("Error unmarshaling response body: %v", err)
-					}
+		promise.
+			Then(func(response *Response) {
+				if response.StatusCode != http.StatusOK {
+					t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
+				}
 
-					if result["message"] != "put success" {
-						t.Errorf("Expected message 'put success', got '%s'", result["message"])
-					}
-					thenExecuted = true
-				}).
-				Catch(func(err error) {
-					t.Errorf("Expected no error, got %v", err)
-				}).
-				Finally(func() {
-					finallyExecuted = true
-					done <- true
-				})
-		}()
+				var result map[string]string
+				err := json.Unmarshal(response.Body, &result)
+				if err != nil {
+					t.Errorf("Error unmarshaling response body: %v", err)
+				}
 
-		select {
-		case <-done:
-			if !finallyExecuted {
-				t.Error("Finally was not executed")
-			}
-			if !thenExecuted {
-				t.Error("Then was not executed")
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("Test timed out after 5 seconds")
+				if result["message"] != "put success" {
+					t.Errorf("Expected message 'put success', got '%s'", result["message"])
+				}
+				thenExecuted = true
+			}).
+			Catch(func(err error) {
+				t.Errorf("Expected no error, got %v", err)
+			}).
+			Finally(func() {
+				finallyExecuted = true
+			})
+
+		// Wait for the promise to complete
+		<-promise.done
+
+		if !thenExecuted {
+			t.Error("Then was not executed")
+		}
+		if !finallyExecuted {
+			t.Error("Finally was not executed")
 		}
 	})
 
@@ -342,48 +312,42 @@ func TestDelete(t *testing.T) {
 	})
 
 	t.Run("Promise Style", func(t *testing.T) {
-		finallyExecuted := false
-		thenExecuted := false
+		promise := DeleteAsync(server.URL + "/delete")
 
-		done := make(chan bool)
+		var thenExecuted, finallyExecuted bool
 
-		go func() {
-			DeleteAsync(server.URL + "/delete").
-				Then(func(response *Response) {
-					if response.StatusCode != http.StatusOK {
-						t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
-					}
+		promise.
+			Then(func(response *Response) {
+				if response.StatusCode != http.StatusOK {
+					t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
+				}
 
-					var result map[string]string
-					err := json.Unmarshal(response.Body, &result)
-					if err != nil {
-						t.Errorf("Error unmarshaling response body: %v", err)
-					}
+				var result map[string]string
+				err := json.Unmarshal(response.Body, &result)
+				if err != nil {
+					t.Errorf("Error unmarshaling response body: %v", err)
+				}
 
-					if result["message"] != "delete success" {
-						t.Errorf("Expected message 'delete success', got '%s'", result["message"])
-					}
-					thenExecuted = true
-				}).
-				Catch(func(err error) {
-					t.Errorf("Expected no error, got %v", err)
-				}).
-				Finally(func() {
-					finallyExecuted = true
-					done <- true
-				})
-		}()
+				if result["message"] != "delete success" {
+					t.Errorf("Expected message 'delete success', got '%s'", result["message"])
+				}
+				thenExecuted = true
+			}).
+			Catch(func(err error) {
+				t.Errorf("Expected no error, got %v", err)
+			}).
+			Finally(func() {
+				finallyExecuted = true
+			})
 
-		select {
-		case <-done:
-			if !finallyExecuted {
-				t.Error("Finally was not executed")
-			}
-			if !thenExecuted {
-				t.Error("Then was not executed")
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("Test timed out after 5 seconds")
+		// Wait for the promise to complete
+		<-promise.done
+
+		if !thenExecuted {
+			t.Error("Then was not executed")
+		}
+		if !finallyExecuted {
+			t.Error("Finally was not executed")
 		}
 	})
 
@@ -433,46 +397,40 @@ func TestHead(t *testing.T) {
 	})
 
 	t.Run("Promise Style", func(t *testing.T) {
-		finallyExecuted := false
-		thenExecuted := false
+		promise := HeadAsync(server.URL + "/head")
 
-		done := make(chan bool)
+		var thenExecuted, finallyExecuted bool
 
-		go func() {
-			HeadAsync(server.URL + "/head").
-				Then(func(response *Response) {
-					if response.StatusCode != http.StatusOK {
-						t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
-					}
+		promise.
+			Then(func(response *Response) {
+				if response.StatusCode != http.StatusOK {
+					t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
+				}
 
-					if response.Headers.Get("X-Test-Header") != "test-value" {
-						t.Errorf("Expected X-Test-Header to be 'test-value', got '%s'", response.Headers.Get("X-Test-Header"))
-					}
+				if response.Headers.Get("X-Test-Header") != "test-value" {
+					t.Errorf("Expected X-Test-Header to be 'test-value', got '%s'", response.Headers.Get("X-Test-Header"))
+				}
 
-					if len(response.Body) != 0 {
-						t.Errorf("Expected empty body, got %d bytes", len(response.Body))
-					}
-					thenExecuted = true
-				}).
-				Catch(func(err error) {
-					t.Errorf("Expected no error, got %v", err)
-				}).
-				Finally(func() {
-					finallyExecuted = true
-					done <- true
-				})
-		}()
+				if len(response.Body) != 0 {
+					t.Errorf("Expected empty body, got %d bytes", len(response.Body))
+				}
+				thenExecuted = true
+			}).
+			Catch(func(err error) {
+				t.Errorf("Expected no error, got %v", err)
+			}).
+			Finally(func() {
+				finallyExecuted = true
+			})
 
-		select {
-		case <-done:
-			if !finallyExecuted {
-				t.Error("Finally was not executed")
-			}
-			if !thenExecuted {
-				t.Error("Then was not executed")
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("Test timed out after 5 seconds")
+		// Wait for the promise to complete
+		<-promise.done
+
+		if !thenExecuted {
+			t.Error("Then was not executed")
+		}
+		if !finallyExecuted {
+			t.Error("Finally was not executed")
 		}
 	})
 
@@ -523,47 +481,41 @@ func TestOptions(t *testing.T) {
 	})
 
 	t.Run("Promise Style", func(t *testing.T) {
-		finallyExecuted := false
-		thenExecuted := false
+		promise := OptionsAsync(server.URL + "/options")
 
-		done := make(chan bool)
+		var thenExecuted, finallyExecuted bool
 
-		go func() {
-			OptionsAsync(server.URL + "/options").
-				Then(func(response *Response) {
-					if response.StatusCode != http.StatusOK {
-						t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
-					}
+		promise.
+			Then(func(response *Response) {
+				if response.StatusCode != http.StatusOK {
+					t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
+				}
 
-					allowHeader := response.Headers.Get("Allow")
-					if allowHeader != expectedAllowHeader {
-						t.Errorf("Expected Allow header to be '%s', got '%s'", expectedAllowHeader, allowHeader)
-					}
+				allowHeader := response.Headers.Get("Allow")
+				if allowHeader != expectedAllowHeader {
+					t.Errorf("Expected Allow header to be '%s', got '%s'", expectedAllowHeader, allowHeader)
+				}
 
-					if len(response.Body) != 0 {
-						t.Errorf("Expected empty body, got %d bytes", len(response.Body))
-					}
-					thenExecuted = true
-				}).
-				Catch(func(err error) {
-					t.Errorf("Expected no error, got %v", err)
-				}).
-				Finally(func() {
-					finallyExecuted = true
-					done <- true
-				})
-		}()
+				if len(response.Body) != 0 {
+					t.Errorf("Expected empty body, got %d bytes", len(response.Body))
+				}
+				thenExecuted = true
+			}).
+			Catch(func(err error) {
+				t.Errorf("Expected no error, got %v", err)
+			}).
+			Finally(func() {
+				finallyExecuted = true
+			})
 
-		select {
-		case <-done:
-			if !finallyExecuted {
-				t.Error("Finally was not executed")
-			}
-			if !thenExecuted {
-				t.Error("Then was not executed")
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("Test timed out after 5 seconds")
+		// Wait for the promise to complete
+		<-promise.done
+
+		if !thenExecuted {
+			t.Error("Then was not executed")
+		}
+		if !finallyExecuted {
+			t.Error("Finally was not executed")
 		}
 	})
 
@@ -615,49 +567,44 @@ func TestPatch(t *testing.T) {
 	})
 
 	t.Run("Promise Style", func(t *testing.T) {
-		finallyExecuted := false
-		thenExecuted := false
+		body := map[string]string{"key": "patched_value"}
 
-		done := make(chan bool)
+		promise := PatchAsync(server.URL+"/patch", body)
 
-		go func() {
-			body := map[string]string{"key": "patched_value"}
-			PatchAsync(server.URL+"/patch", body).
-				Then(func(response *Response) {
-					if response.StatusCode != http.StatusOK {
-						t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
-					}
+		var thenExecuted, finallyExecuted bool
 
-					var result map[string]string
-					err := json.Unmarshal(response.Body, &result)
-					if err != nil {
-						t.Errorf("Error unmarshaling response body: %v", err)
-					}
+		promise.
+			Then(func(response *Response) {
+				if response.StatusCode != http.StatusOK {
+					t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
+				}
 
-					if result["message"] != "patch success" {
-						t.Errorf("Expected message 'patch success', got '%s'", result["message"])
-					}
-					thenExecuted = true
-				}).
-				Catch(func(err error) {
-					t.Errorf("Expected no error, got %v", err)
-				}).
-				Finally(func() {
-					finallyExecuted = true
-					done <- true
-				})
-		}()
+				var result map[string]string
+				err := json.Unmarshal(response.Body, &result)
+				if err != nil {
+					t.Errorf("Error unmarshaling response body: %v", err)
+				}
 
-		select {
-		case <-done:
-			if !finallyExecuted {
-				t.Error("Finally was not executed")
-			}
-			if !thenExecuted {
-				t.Error("Then was not executed")
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("Test timed out after 5 seconds")
+				if result["message"] != "patch success" {
+					t.Errorf("Expected message 'patch success', got '%s'", result["message"])
+				}
+				thenExecuted = true
+			}).
+			Catch(func(err error) {
+				t.Errorf("Expected no error, got %v", err)
+			}).
+			Finally(func() {
+				finallyExecuted = true
+			})
+
+		// Wait for the promise to complete
+		<-promise.done
+
+		if !thenExecuted {
+			t.Error("Then was not executed")
+		}
+		if !finallyExecuted {
+			t.Error("Finally was not executed")
 		}
 	})
 
@@ -707,43 +654,36 @@ func TestValidateStatus(t *testing.T) {
 	})
 
 	t.Run("Promise Style", func(t *testing.T) {
-		finallyExecuted := false
-		thenExecuted := false
+		promise := GetAsync(server.URL+"/get", reqOptions)
 
-		done := make(chan bool)
+		var catchExecuted, finallyExecuted bool
 
-		go func() {
-			GetAsync(server.URL+"/get", reqOptions).
-				Then(func(response *Response) {
-					if response != nil {
-						t.Fatalf("Expected error, got %v", response)
-					}
-					thenExecuted = true
-				}).
-				Catch(func(err error) {
-					if err == nil {
-						t.Fatalf("Expected error, got %v", err)
-					}
-					if err.Error() != "Request failed with status code: 200" {
-						t.Errorf("Expected error Request failed with status code: 200, got %v", err.Error())
-					}
-				}).
-				Finally(func() {
-					finallyExecuted = true
-					done <- true
-				})
-		}()
+		promise.
+			Then(func(response *Response) {
+				t.Error("Then should not be executed when validateStatus returns false")
+			}).
+			Catch(func(err error) {
+				if err == nil {
+					t.Fatal("Expected an error, got nil")
+				}
+				expectedError := "Request failed with status code: 200"
+				if err.Error() != expectedError {
+					t.Errorf("Expected error '%s', got '%s'", expectedError, err.Error())
+				}
+				catchExecuted = true
+			}).
+			Finally(func() {
+				finallyExecuted = true
+			})
 
-		select {
-		case <-done:
-			if !finallyExecuted {
-				t.Error("Finally was not executed")
-			}
-			if thenExecuted {
-				t.Error("Then was executed")
-			}
-		case <-time.After(5 * time.Second):
-			t.Fatal("Test timed out after 5 seconds")
+		// Wait for the promise to complete
+		<-promise.done
+
+		if !catchExecuted {
+			t.Error("Catch was not executed")
+		}
+		if !finallyExecuted {
+			t.Error("Finally was not executed")
 		}
 	})
 
