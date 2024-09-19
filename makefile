@@ -1,4 +1,4 @@
-# Makefile for axios4go project
+# Makefile for axios4go 
 
 # Go parameters
 GOCMD=go
