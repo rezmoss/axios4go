@@ -174,7 +174,7 @@ func TestPost(t *testing.T) {
 
 	t.Run("Request Style", func(t *testing.T) {
 		body := map[string]string{"key": "value"}
-		response, err := Request("POST", server.URL+"/post", &requestOptions{body: body})
+		response, err := Request("POST", server.URL+"/post", &RequestOptions{body: body})
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -265,7 +265,7 @@ func TestPut(t *testing.T) {
 
 	t.Run("Request Style", func(t *testing.T) {
 		body := map[string]string{"key": "updated_value"}
-		response, err := Request("PUT", server.URL+"/put", &requestOptions{body: body})
+		response, err := Request("PUT", server.URL+"/put", &RequestOptions{body: body})
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -610,7 +610,7 @@ func TestPatch(t *testing.T) {
 
 	t.Run("Request Style", func(t *testing.T) {
 		body := map[string]string{"key": "patched_value"}
-		response, err := Request("PATCH", server.URL+"/patch", &requestOptions{body: body})
+		response, err := Request("PATCH", server.URL+"/patch", &RequestOptions{body: body})
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -634,7 +634,7 @@ func TestPatch(t *testing.T) {
 func TestValidateStatus(t *testing.T) {
 	server := setupTestServer()
 	defer server.Close()
-	reqOptions := &requestOptions{
+	reqOptions := &RequestOptions{
 		validateStatus: func(StatusCode int) bool {
 			if StatusCode == 200 {
 				return false

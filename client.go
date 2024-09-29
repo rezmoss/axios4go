@@ -35,7 +35,7 @@ type Promise struct {
 	mu       sync.Mutex
 }
 
-type requestOptions struct {
+type RequestOptions struct {
 	method           string
 	url              string
 	baseURL          string
@@ -128,11 +128,11 @@ func (p *Promise) resolve(resp *Response, err error) {
 	close(p.done)
 }
 
-func Get(urlStr string, options ...*requestOptions) (*Response, error) {
+func Get(urlStr string, options ...*RequestOptions) (*Response, error) {
 	return Request("GET", urlStr, options...)
 }
 
-func GetAsync(urlStr string, options ...*requestOptions) *Promise {
+func GetAsync(urlStr string, options ...*RequestOptions) *Promise {
 	promise := NewPromise()
 
 	go func() {
@@ -143,12 +143,12 @@ func GetAsync(urlStr string, options ...*requestOptions) *Promise {
 	return promise
 }
 
-func Post(urlStr string, body interface{}, options ...*requestOptions) (*Response, error) {
+func Post(urlStr string, body interface{}, options ...*RequestOptions) (*Response, error) {
 	mergedOptions := mergeBodyIntoOptions(body, options)
 	return Request("POST", urlStr, mergedOptions)
 }
 
-func PostAsync(urlStr string, body interface{}, options ...*requestOptions) *Promise {
+func PostAsync(urlStr string, body interface{}, options ...*RequestOptions) *Promise {
 	mergedOptions := mergeBodyIntoOptions(body, options)
 	promise := NewPromise()
 
@@ -160,8 +160,8 @@ func PostAsync(urlStr string, body interface{}, options ...*requestOptions) *Pro
 	return promise
 }
 
-func mergeBodyIntoOptions(body interface{}, options []*requestOptions) *requestOptions {
-	mergedOption := &requestOptions{
+func mergeBodyIntoOptions(body interface{}, options []*RequestOptions) *RequestOptions {
+	mergedOption := &RequestOptions{
 		body: body,
 	}
 
@@ -173,12 +173,12 @@ func mergeBodyIntoOptions(body interface{}, options []*requestOptions) *requestO
 	return mergedOption
 }
 
-func Put(urlStr string, body interface{}, options ...*requestOptions) (*Response, error) {
+func Put(urlStr string, body interface{}, options ...*RequestOptions) (*Response, error) {
 	mergedOptions := mergeBodyIntoOptions(body, options)
 	return Request("PUT", urlStr, mergedOptions)
 }
 
-func PutAsync(urlStr string, body interface{}, options ...*requestOptions) *Promise {
+func PutAsync(urlStr string, body interface{}, options ...*RequestOptions) *Promise {
 	mergedOptions := mergeBodyIntoOptions(body, options)
 	promise := NewPromise()
 
@@ -190,11 +190,11 @@ func PutAsync(urlStr string, body interface{}, options ...*requestOptions) *Prom
 	return promise
 }
 
-func Delete(urlStr string, options ...*requestOptions) (*Response, error) {
+func Delete(urlStr string, options ...*RequestOptions) (*Response, error) {
 	return Request("DELETE", urlStr, options...)
 }
 
-func DeleteAsync(urlStr string, options ...*requestOptions) *Promise {
+func DeleteAsync(urlStr string, options ...*RequestOptions) *Promise {
 	promise := NewPromise()
 	go func() {
 		resp, err := Request("DELETE", urlStr, options...)
@@ -203,11 +203,11 @@ func DeleteAsync(urlStr string, options ...*requestOptions) *Promise {
 	return promise
 }
 
-func Head(urlStr string, options ...*requestOptions) (*Response, error) {
+func Head(urlStr string, options ...*RequestOptions) (*Response, error) {
 	return Request("HEAD", urlStr, options...)
 }
 
-func HeadAsync(urlStr string, options ...*requestOptions) *Promise {
+func HeadAsync(urlStr string, options ...*RequestOptions) *Promise {
 	promise := NewPromise()
 	go func() {
 		resp, err := Request("HEAD", urlStr, options...)
@@ -216,11 +216,11 @@ func HeadAsync(urlStr string, options ...*requestOptions) *Promise {
 	return promise
 }
 
-func Options(urlStr string, options ...*requestOptions) (*Response, error) {
+func Options(urlStr string, options ...*RequestOptions) (*Response, error) {
 	return Request("OPTIONS", urlStr, options...)
 }
 
-func OptionsAsync(urlStr string, options ...*requestOptions) *Promise {
+func OptionsAsync(urlStr string, options ...*RequestOptions) *Promise {
 	promise := NewPromise()
 	go func() {
 		resp, err := Request("OPTIONS", urlStr, options...)
@@ -229,12 +229,12 @@ func OptionsAsync(urlStr string, options ...*requestOptions) *Promise {
 	return promise
 }
 
-func Patch(urlStr string, body interface{}, options ...*requestOptions) (*Response, error) {
+func Patch(urlStr string, body interface{}, options ...*RequestOptions) (*Response, error) {
 	mergedOptions := mergeBodyIntoOptions(body, options)
 	return Request("PATCH", urlStr, mergedOptions)
 }
 
-func PatchAsync(urlStr string, body interface{}, options ...*requestOptions) *Promise {
+func PatchAsync(urlStr string, body interface{}, options ...*RequestOptions) *Promise {
 	mergedOptions := mergeBodyIntoOptions(body, options)
 	promise := NewPromise()
 
@@ -246,8 +246,8 @@ func PatchAsync(urlStr string, body interface{}, options ...*requestOptions) *Pr
 	return promise
 }
 
-func Request(method, urlStr string, options ...*requestOptions) (*Response, error) {
-	reqOptions := &requestOptions{
+func Request(method, urlStr string, options ...*RequestOptions) (*Response, error) {
+	reqOptions := &RequestOptions{
 		method:           "GET",
 		url:              urlStr,
 		timeout:          1000,
@@ -271,12 +271,12 @@ func Request(method, urlStr string, options ...*requestOptions) (*Response, erro
 	return defaultClient.Request(reqOptions)
 }
 
-func RequestAsync(method, urlStr string, options ...*requestOptions) *Promise {
+func RequestAsync(method, urlStr string, options ...*RequestOptions) *Promise {
 	resp, err := Request(method, urlStr, options...)
 	return &Promise{response: resp, err: err}
 }
 
-func (c *Client) Request(options *requestOptions) (*Response, error) {
+func (c *Client) Request(options *RequestOptions) (*Response, error) {
 	var fullURL string
 	if c.BaseURL != "" {
 		var err error
@@ -393,7 +393,7 @@ func (c *Client) Request(options *requestOptions) (*Response, error) {
 	}, err
 }
 
-func mergeOptions(dst, src *requestOptions) {
+func mergeOptions(dst, src *RequestOptions) {
 	if src.method != "" {
 		dst.method = src.method
 	}
