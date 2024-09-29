@@ -336,7 +336,15 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		return nil, err
 	}
 
-	req.Header.Set("Content-Type", "application/json")
+	if options.headers == nil {
+		options.headers = make(map[string]string)
+	}
+
+	if options.body != nil {
+		if _, exists := options.headers["Content-Type"]; !exists {
+			options.headers["Content-Type"] = "application/json"
+		}
+	}
 
 	for key, value := range options.headers {
 		req.Header.Set(key, value)
