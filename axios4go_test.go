@@ -698,3 +698,59 @@ func TestValidateStatus(t *testing.T) {
 	})
 
 }
+
+func TestInterceptors(t *testing.T) {
+	server := setupTestServer()
+	defer server.Close()
+
+	var interceptedRequest *http.Request
+	requestInterceptorCalled := false
+	requestInterceptor := func(req *http.Request) error {
+		req.Header.Set("X-Intercepted", "true")
+		interceptedRequest = req
+		requestInterceptorCalled = true
+		return nil
+	}
+
+	responseInterceptor := func(resp *http.Response) error {
+		resp.Header.Set("X-Intercepted-Response", "true")
+		return nil
+	}
+
+	opts := &RequestOptions{
+		headers: map[string]string{
+			"Content-Type": "application/json",
+		},
+		params: map[string]string{
+			"query": "myQuery",
+		},
+	}
+
+	opts.interceptorOptions = InterceptorOptions{
+		requestInterceptors:  []func(*http.Request) error{requestInterceptor},
+		responseInterceptors: []func(*http.Response) error{responseInterceptor},
+	}
+
+	t.Run("Interceptors Test", func(t *testing.T) {
+		response, err := Get(server.URL+"/get", opts)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if !requestInterceptorCalled {
+			t.Error("Request interceptor was not called")
+		}
+
+		if interceptedRequest != nil {
+			if interceptedRequest.Header.Get("X-Intercepted") != "true" {
+				t.Errorf("Expected request header 'X-Intercepted' to be 'true', got '%s'", interceptedRequest.Header.Get("X-Intercepted"))
+			}
+		} else {
+			t.Error("Intercepted request is nil")
+		}
+
+		if response.Headers.Get("X-Intercepted-Response") != "true" {
+			t.Errorf("Expected response header 'X-Intercepted-Response' to be 'true', got '%s'", response.Headers.Get("X-Intercepted-Response"))
+		}
+	})
+}

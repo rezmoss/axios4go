@@ -35,22 +35,30 @@ type Promise struct {
 	mu       sync.Mutex
 }
 
+type RequestInterceptors []func(*http.Request) error
+type ResponseInterceptors []func(*http.Response) error
+type InterceptorOptions struct {
+	requestInterceptors  RequestInterceptors
+	responseInterceptors ResponseInterceptors
+}
+
 type RequestOptions struct {
-	method           string
-	url              string
-	baseURL          string
-	params           map[string]string
-	body             interface{}
-	headers          map[string]string
-	timeout          int
-	auth             *auth
-	responseType     string
-	responseEncoding string
-	maxRedirects     int
-	maxContentLength int
-	maxBodyLength    int
-	decompress       bool
-	validateStatus   func(int) bool
+	method             string
+	url                string
+	baseURL            string
+	params             map[string]string
+	body               interface{}
+	headers            map[string]string
+	timeout            int
+	auth               *auth
+	responseType       string
+	responseEncoding   string
+	maxRedirects       int
+	maxContentLength   int
+	maxBodyLength      int
+	decompress         bool
+	validateStatus     func(int) bool
+	interceptorOptions InterceptorOptions
 }
 
 type auth struct {
@@ -336,6 +344,13 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		return nil, err
 	}
 
+	for _, interceptor := range options.interceptorOptions.requestInterceptors {
+		err = interceptor(req)
+		if err != nil {
+			return nil, fmt.Errorf("request interceptor failed: %w", err)
+		}
+	}
+
 	if options.headers == nil {
 		options.headers = make(map[string]string)
 	}
@@ -394,6 +409,13 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		return nil, fmt.Errorf("Request failed with status code: %v", resp.StatusCode)
 	}
 
+	for _, interceptor := range options.interceptorOptions.responseInterceptors {
+		err = interceptor(resp)
+		if err != nil {
+			return nil, fmt.Errorf("response interceptor failed: %w", err)
+		}
+	}
+
 	return &Response{
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
@@ -443,6 +465,12 @@ func mergeOptions(dst, src *RequestOptions) {
 	}
 	if src.validateStatus != nil {
 		dst.validateStatus = src.validateStatus
+	}
+	if src.interceptorOptions.requestInterceptors != nil {
+		dst.interceptorOptions.requestInterceptors = src.interceptorOptions.requestInterceptors
+	}
+	if src.interceptorOptions.responseInterceptors != nil {
+		dst.interceptorOptions.responseInterceptors = src.interceptorOptions.responseInterceptors
 	}
 	dst.decompress = src.decompress
 }
