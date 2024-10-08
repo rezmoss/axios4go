@@ -174,7 +174,7 @@ func TestPost(t *testing.T) {
 
 	t.Run("Request Style", func(t *testing.T) {
 		body := map[string]string{"key": "value"}
-		response, err := Request("POST", server.URL+"/post", &RequestOptions{body: body})
+		response, err := Request("POST", server.URL+"/post", &RequestOptions{Body: body})
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -265,7 +265,7 @@ func TestPut(t *testing.T) {
 
 	t.Run("Request Style", func(t *testing.T) {
 		body := map[string]string{"key": "updated_value"}
-		response, err := Request("PUT", server.URL+"/put", &RequestOptions{body: body})
+		response, err := Request("PUT", server.URL+"/put", &RequestOptions{Body: body})
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -610,7 +610,7 @@ func TestPatch(t *testing.T) {
 
 	t.Run("Request Style", func(t *testing.T) {
 		body := map[string]string{"key": "patched_value"}
-		response, err := Request("PATCH", server.URL+"/patch", &RequestOptions{body: body})
+		response, err := Request("PATCH", server.URL+"/patch", &RequestOptions{Body: body})
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -635,7 +635,7 @@ func TestValidateStatus(t *testing.T) {
 	server := setupTestServer()
 	defer server.Close()
 	reqOptions := &RequestOptions{
-		validateStatus: func(StatusCode int) bool {
+		ValidateStatus: func(StatusCode int) bool {
 			if StatusCode == 200 {
 				return false
 			}
@@ -718,17 +718,17 @@ func TestInterceptors(t *testing.T) {
 	}
 
 	opts := &RequestOptions{
-		headers: map[string]string{
+		Headers: map[string]string{
 			"Content-Type": "application/json",
 		},
-		params: map[string]string{
+		Params: map[string]string{
 			"query": "myQuery",
 		},
 	}
 
-	opts.interceptorOptions = InterceptorOptions{
-		requestInterceptors:  []func(*http.Request) error{requestInterceptor},
-		responseInterceptors: []func(*http.Response) error{responseInterceptor},
+	opts.InterceptorOptions = InterceptorOptions{
+		RequestInterceptors:  []func(*http.Request) error{requestInterceptor},
+		ResponseInterceptors: []func(*http.Response) error{responseInterceptor},
 	}
 
 	t.Run("Interceptors Test", func(t *testing.T) {
