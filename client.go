@@ -38,32 +38,32 @@ type Promise struct {
 type RequestInterceptors []func(*http.Request) error
 type ResponseInterceptors []func(*http.Response) error
 type InterceptorOptions struct {
-	requestInterceptors  RequestInterceptors
-	responseInterceptors ResponseInterceptors
+	RequestInterceptors  RequestInterceptors
+	ResponseInterceptors ResponseInterceptors
 }
 
 type RequestOptions struct {
-	method             string
-	url                string
-	baseURL            string
-	params             map[string]string
-	body               interface{}
-	headers            map[string]string
-	timeout            int
-	auth               *auth
-	responseType       string
-	responseEncoding   string
-	maxRedirects       int
-	maxContentLength   int
-	maxBodyLength      int
-	decompress         bool
-	validateStatus     func(int) bool
-	interceptorOptions InterceptorOptions
+	Method             string
+	Url                string
+	BaseURL            string
+	Params             map[string]string
+	Body               interface{}
+	Headers            map[string]string
+	Timeout            int
+	Auth               *Auth
+	ResponseType       string
+	ResponseEncoding   string
+	MaxRedirects       int
+	MaxContentLength   int
+	MaxBodyLength      int
+	Decompress         bool
+	ValidateStatus     func(int) bool
+	InterceptorOptions InterceptorOptions
 }
 
-type auth struct {
-	username string
-	password string
+type Auth struct {
+	Username string
+	Password string
 }
 
 var defaultClient = &Client{HTTPClient: &http.Client{}}
@@ -170,12 +170,12 @@ func PostAsync(urlStr string, body interface{}, options ...*RequestOptions) *Pro
 
 func mergeBodyIntoOptions(body interface{}, options []*RequestOptions) *RequestOptions {
 	mergedOption := &RequestOptions{
-		body: body,
+		Body: body,
 	}
 
 	if len(options) > 0 {
 		*mergedOption = *options[0]
-		mergedOption.body = body
+		mergedOption.Body = body
 	}
 
 	return mergedOption
@@ -256,16 +256,16 @@ func PatchAsync(urlStr string, body interface{}, options ...*RequestOptions) *Pr
 
 func Request(method, urlStr string, options ...*RequestOptions) (*Response, error) {
 	reqOptions := &RequestOptions{
-		method:           "GET",
-		url:              urlStr,
-		timeout:          1000,
-		responseType:     "json",
-		responseEncoding: "utf8",
-		maxContentLength: 2000,
-		maxBodyLength:    2000,
-		maxRedirects:     21,
-		decompress:       true,
-		validateStatus:   nil,
+		Method:           "GET",
+		Url:              urlStr,
+		Timeout:          1000,
+		ResponseType:     "json",
+		ResponseEncoding: "utf8",
+		MaxContentLength: 2000,
+		MaxBodyLength:    2000,
+		MaxRedirects:     21,
+		Decompress:       true,
+		ValidateStatus:   nil,
 	}
 
 	if len(options) > 0 && options[0] != nil {
@@ -273,7 +273,7 @@ func Request(method, urlStr string, options ...*RequestOptions) (*Response, erro
 	}
 
 	if method != "" {
-		reqOptions.method = method
+		reqOptions.Method = method
 	}
 
 	return defaultClient.Request(reqOptions)
@@ -288,27 +288,27 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 	var fullURL string
 	if c.BaseURL != "" {
 		var err error
-		fullURL, err = url.JoinPath(c.BaseURL, options.url)
+		fullURL, err = url.JoinPath(c.BaseURL, options.Url)
 		if err != nil {
 			return nil, err
 		}
-	} else if options.baseURL != "" {
+	} else if options.BaseURL != "" {
 		var err error
-		fullURL, err = url.JoinPath(options.baseURL, options.url)
+		fullURL, err = url.JoinPath(options.BaseURL, options.Url)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		fullURL = options.url
+		fullURL = options.Url
 	}
 
-	if len(options.params) > 0 {
+	if len(options.Params) > 0 {
 		parsedURL, err := url.Parse(fullURL)
 		if err != nil {
 			return nil, err
 		}
 		q := parsedURL.Query()
-		for k, v := range options.params {
+		for k, v := range options.Params {
 			q.Add(k, v)
 		}
 		parsedURL.RawQuery = q.Encode()
@@ -318,8 +318,8 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 	var bodyReader io.Reader
 	var bodyLength int64
 
-	if options.body != nil {
-		switch v := options.body.(type) {
+	if options.Body != nil {
+		switch v := options.Body.(type) {
 		case string:
 			bodyReader = strings.NewReader(v)
 			bodyLength = int64(len(v))
@@ -327,55 +327,55 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 			bodyReader = bytes.NewReader(v)
 			bodyLength = int64(len(v))
 		default:
-			jsonBody, err := json.Marshal(options.body)
+			jsonBody, err := json.Marshal(options.Body)
 			if err != nil {
 				return nil, err
 			}
 			bodyReader = bytes.NewBuffer(jsonBody)
 			bodyLength = int64(len(jsonBody))
 		}
-		if options.maxBodyLength > 0 && bodyLength > int64(options.maxBodyLength) {
+		if options.MaxBodyLength > 0 && bodyLength > int64(options.MaxBodyLength) {
 			return nil, errors.New("request body length exceeded maxBodyLength")
 		}
 	}
 
-	req, err := http.NewRequest(options.method, fullURL, bodyReader)
+	req, err := http.NewRequest(options.Method, fullURL, bodyReader)
 	if err != nil {
 		return nil, err
 	}
 
-	for _, interceptor := range options.interceptorOptions.requestInterceptors {
+	for _, interceptor := range options.InterceptorOptions.RequestInterceptors {
 		err = interceptor(req)
 		if err != nil {
 			return nil, fmt.Errorf("request interceptor failed: %w", err)
 		}
 	}
 
-	if options.headers == nil {
-		options.headers = make(map[string]string)
+	if options.Headers == nil {
+		options.Headers = make(map[string]string)
 	}
 
-	if options.body != nil {
-		if _, exists := options.headers["Content-Type"]; !exists {
-			options.headers["Content-Type"] = "application/json"
+	if options.Body != nil {
+		if _, exists := options.Headers["Content-Type"]; !exists {
+			options.Headers["Content-Type"] = "application/json"
 		}
 	}
 
-	for key, value := range options.headers {
+	for key, value := range options.Headers {
 		req.Header.Set(key, value)
 	}
 
-	if options.auth != nil {
-		auth := options.auth.username + ":" + options.auth.password
+	if options.Auth != nil {
+		auth := options.Auth.Username + ":" + options.Auth.Password
 		basicAuth := base64.StdEncoding.EncodeToString([]byte(auth))
 		req.Header.Set("Authorization", "Basic "+basicAuth)
 	}
 
-	c.HTTPClient.Timeout = time.Duration(options.timeout) * time.Millisecond
+	c.HTTPClient.Timeout = time.Duration(options.Timeout) * time.Millisecond
 
-	if options.maxRedirects > 0 {
+	if options.MaxRedirects > 0 {
 		c.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			if len(via) >= options.maxRedirects {
+			if len(via) >= options.MaxRedirects {
 				return http.ErrUseLastResponse
 			}
 			return nil
@@ -401,15 +401,15 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		return nil, err
 	}
 
-	if int64(len(responseBody)) > int64(options.maxContentLength) {
+	if int64(len(responseBody)) > int64(options.MaxContentLength) {
 		return nil, errors.New("response content length exceeded maxContentLength")
 	}
 
-	if options.validateStatus != nil && !(options.validateStatus(resp.StatusCode)) {
+	if options.ValidateStatus != nil && !(options.ValidateStatus(resp.StatusCode)) {
 		return nil, fmt.Errorf("Request failed with status code: %v", resp.StatusCode)
 	}
 
-	for _, interceptor := range options.interceptorOptions.responseInterceptors {
+	for _, interceptor := range options.InterceptorOptions.ResponseInterceptors {
 		err = interceptor(resp)
 		if err != nil {
 			return nil, fmt.Errorf("response interceptor failed: %w", err)
@@ -424,55 +424,55 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 }
 
 func mergeOptions(dst, src *RequestOptions) {
-	if src.method != "" {
-		dst.method = src.method
+	if src.Method != "" {
+		dst.Method = src.Method
 	}
-	if src.url != "" {
-		dst.url = src.url
+	if src.Url != "" {
+		dst.Url = src.Url
 	}
-	if src.baseURL != "" {
-		dst.baseURL = src.baseURL
+	if src.BaseURL != "" {
+		dst.BaseURL = src.BaseURL
 	}
-	if src.params != nil {
-		dst.params = src.params
+	if src.Params != nil {
+		dst.Params = src.Params
 	}
-	if src.body != nil {
-		dst.body = src.body
+	if src.Body != nil {
+		dst.Body = src.Body
 	}
-	if src.headers != nil {
-		dst.headers = src.headers
+	if src.Headers != nil {
+		dst.Headers = src.Headers
 	}
-	if src.timeout != 0 {
-		dst.timeout = src.timeout
+	if src.Timeout != 0 {
+		dst.Timeout = src.Timeout
 	}
-	if src.auth != nil {
-		dst.auth = src.auth
+	if src.Auth != nil {
+		dst.Auth = src.Auth
 	}
-	if src.responseType != "" {
-		dst.responseType = src.responseType
+	if src.ResponseType != "" {
+		dst.ResponseType = src.ResponseType
 	}
-	if src.responseEncoding != "" {
-		dst.responseEncoding = src.responseEncoding
+	if src.ResponseEncoding != "" {
+		dst.ResponseEncoding = src.ResponseEncoding
 	}
-	if src.maxRedirects != 0 {
-		dst.maxRedirects = src.maxRedirects
+	if src.MaxRedirects != 0 {
+		dst.MaxRedirects = src.MaxRedirects
 	}
-	if src.maxContentLength != 0 {
-		dst.maxContentLength = src.maxContentLength
+	if src.MaxContentLength != 0 {
+		dst.MaxContentLength = src.MaxContentLength
 	}
-	if src.maxBodyLength != 0 {
-		dst.maxBodyLength = src.maxBodyLength
+	if src.MaxBodyLength != 0 {
+		dst.MaxBodyLength = src.MaxBodyLength
 	}
-	if src.validateStatus != nil {
-		dst.validateStatus = src.validateStatus
+	if src.ValidateStatus != nil {
+		dst.ValidateStatus = src.ValidateStatus
 	}
-	if src.interceptorOptions.requestInterceptors != nil {
-		dst.interceptorOptions.requestInterceptors = src.interceptorOptions.requestInterceptors
+	if src.InterceptorOptions.RequestInterceptors != nil {
+		dst.InterceptorOptions.RequestInterceptors = src.InterceptorOptions.RequestInterceptors
 	}
-	if src.interceptorOptions.responseInterceptors != nil {
-		dst.interceptorOptions.responseInterceptors = src.interceptorOptions.responseInterceptors
+	if src.InterceptorOptions.ResponseInterceptors != nil {
+		dst.InterceptorOptions.ResponseInterceptors = src.InterceptorOptions.ResponseInterceptors
 	}
-	dst.decompress = src.decompress
+	dst.Decompress = src.Decompress
 }
 
 func SetBaseURL(baseURL string) {
