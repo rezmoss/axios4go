@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/rezmoss/axios4go/compare/v0.2.1...v0.3.0) (2024-10-08)
+
+
+### Features
+
+* add request and response interceptors to client requests ([a1ecc99](https://github.com/rezmoss/axios4go/commit/a1ecc998aa96eaf32404204be4d36f8f9f01d26a))
+
 ## [0.2.1](https://github.com/rezmoss/axios4go/compare/v0.2.0...v0.2.1) (2024-09-29)
 
 
