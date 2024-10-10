@@ -18,6 +18,9 @@ axios4go is a Go HTTP client library inspired by Axios, providing a simple and i
   - [Making POST Requests](#making-post-requests)
   - [Using Async Requests](#using-async-requests)
   - [Creating a Custom Client](#creating-a-custom-client)
+  - [Using Interceptors](#using-interceptors)
+  - [Handling Progress](#handling-progress)
+  - [Using Proxy](#using-proxy)
 - [Configuration Options](#configuration-options)
 - [Contributing](#contributing)
 - [License](#license)
@@ -28,10 +31,15 @@ axios4go is a Go HTTP client library inspired by Axios, providing a simple and i
 - Support for `GET`, `POST`, `PUT`, `DELETE`, `HEAD`, `OPTIONS`, and `PATCH` methods
 - JSON request and response handling
 - Configurable client instances
-- Global timeout and redirect management
+- Global and per-request timeout management
+- Redirect management
 - Basic authentication support
 - Customizable request options
 - Promise-like asynchronous requests
+- Request and response interceptors
+- Upload and download progress tracking
+- Proxy support
+- Configurable max content length and body length
 
 ## Installation
 
@@ -114,11 +122,11 @@ axios4go.GetAsync("https://api.example.com/data").
 ### Creating a Custom Client
 
 ```go
-client := axios4go.NewClient("https://api.example.com", 5*time.Second, 5) // Base URL, Timeout, Max Redirects
+client := axios4go.NewClient("https://api.example.com")
 
 resp, err := client.Request(&axios4go.RequestOptions{
     Method: "GET",
-    URL:    "/users",
+    Url:    "/users",
     Headers: map[string]string{
         "Authorization": "Bearer token",
     },
@@ -131,27 +139,92 @@ fmt.Printf("Status Code: %d\n", resp.StatusCode)
 fmt.Printf("Body: %s\n", string(resp.Body))
 ```
 
-**Note**: When creating a custom client, timeouts and max redirects are set at the client level.
+### Using Interceptors
+
+```go
+options := &axios4go.RequestOptions{
+    InterceptorOptions: axios4go.InterceptorOptions{
+        RequestInterceptors: []func(*http.Request) error{
+            func(req *http.Request) error {
+                req.Header.Set("X-Custom-Header", "value")
+                return nil
+            },
+        },
+        ResponseInterceptors: []func(*http.Response) error{
+            func(resp *http.Response) error {
+                fmt.Printf("Response received with status: %d\n", resp.StatusCode)
+                return nil
+            },
+        },
+    },
+}
+
+resp, err := axios4go.Get("https://api.example.com/data", options)
+```
+
+### Handling Progress
+
+```go
+options := &axios4go.RequestOptions{
+    OnUploadProgress: func(bytesRead, totalBytes int64) {
+        fmt.Printf("Upload progress: %d/%d bytes\n", bytesRead, totalBytes)
+    },
+    OnDownloadProgress: func(bytesRead, totalBytes int64) {
+        fmt.Printf("Download progress: %d/%d bytes\n", bytesRead, totalBytes)
+    },
+}
+
+resp, err := axios4go.Post("https://api.example.com/upload", largeData, options)
+```
+
+### Using Proxy
+
+```go
+options := &axios4go.RequestOptions{
+    Proxy: &axios4go.Proxy{
+        Protocol: "http",
+        Host:     "proxy.example.com",
+        Port:     8080,
+        Auth: &axios4go.Auth{
+            Username: "proxyuser",
+            Password: "proxypass",
+        },
+    },
+}
+
+resp, err := axios4go.Get("https://api.example.com/data", options)
+```
 
 ## Configuration Options
 
 `axios4go` supports various configuration options through the `RequestOptions` struct:
 
 - **Method**: HTTP method (`GET`, `POST`, etc.)
-- **URL**: Request URL (relative to `BaseURL` if provided)
+- **Url**: Request URL (relative to `BaseURL` if provided)
 - **BaseURL**: Base URL for the request (overrides client's `BaseURL` if set)
 - **Params**: URL query parameters (`map[string]string`)
 - **Body**: Request body (can be `string`, `[]byte`, or any JSON serializable object)
 - **Headers**: Custom headers (`map[string]string`)
+- **Timeout**: Request timeout in milliseconds
 - **Auth**: Basic authentication credentials (`&Auth{Username: "user", Password: "pass"}`)
+- **ResponseType**: Expected response type (default is "json")
+- **ResponseEncoding**: Expected response encoding (default is "utf8")
+- **MaxRedirects**: Maximum number of redirects to follow
+- **MaxContentLength**: Maximum allowed response content length
+- **MaxBodyLength**: Maximum allowed request body length
+- **Decompress**: Whether to decompress the response body (default is true)
 - **ValidateStatus**: Function to validate HTTP response status codes
+- **InterceptorOptions**: Request and response interceptors
+- **Proxy**: Proxy configuration
+- **OnUploadProgress**: Function to track upload progress
+- **OnDownloadProgress**: Function to track download progress
 
 **Example**:
 
 ```go
 options := &axios4go.RequestOptions{
     Method: "POST",
-    URL:    "/submit",
+    Url:    "/submit",
     Headers: map[string]string{
         "Content-Type": "application/json",
     },
@@ -166,6 +239,9 @@ options := &axios4go.RequestOptions{
     Params: map[string]string{
         "verbose": "true",
     },
+    Timeout:          5000, // 5 seconds
+    MaxRedirects:     5,
+    MaxContentLength: 1024 * 1024, // 1MB
     ValidateStatus: func(statusCode int) bool {
         return statusCode >= 200 && statusCode < 300
     },
