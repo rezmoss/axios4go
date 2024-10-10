@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/rezmoss/axios4go/compare/v0.4.0...v0.5.0) (2024-10-10)
+
+
+### Features
+
+* Progress Tracking for Uploads/Downloads ([426ffaf](https://github.com/rezmoss/axios4go/commit/426ffaf0edaf33b8bbf3fae455bf1f9428ef12c8))
+* Progress Tracking for Uploads/Downloads , fixed [#22](https://github.com/rezmoss/axios4go/issues/22) ([9324508](https://github.com/rezmoss/axios4go/commit/9324508733a342748cfdbfe02f9c99e3ffaba166))
+
 ## [0.4.0](https://github.com/rezmoss/axios4go/compare/v0.3.0...v0.4.0) (2024-10-10)
 
 
