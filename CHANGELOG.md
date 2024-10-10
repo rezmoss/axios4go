@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/rezmoss/axios4go/compare/v0.3.0...v0.4.0) (2024-10-10)
+
+
+### Features
+
+* support defines proxy setting for request ([730c775](https://github.com/rezmoss/axios4go/commit/730c775d8c1057cfc7b064e3de28ef89c13cd3e2))
+
 ## [0.3.0](https://github.com/rezmoss/axios4go/compare/v0.2.1...v0.3.0) (2024-10-08)
 
 
