@@ -54,12 +54,14 @@ type RequestOptions struct {
 	ResponseType       string
 	ResponseEncoding   string
 	MaxRedirects       int
-	MaxContentLength   int
-	MaxBodyLength      int
+	MaxContentLength   int64
+	MaxBodyLength      int64
 	Decompress         bool
 	ValidateStatus     func(int) bool
 	InterceptorOptions InterceptorOptions
 	Proxy              *Proxy
+	OnUploadProgress   func(bytesRead, totalBytes int64)
+	OnDownloadProgress func(bytesRead, totalBytes int64)
 }
 
 type Proxy struct {
@@ -72,6 +74,38 @@ type Proxy struct {
 type Auth struct {
 	Username string
 	Password string
+}
+
+type ProgressReader struct {
+	reader     io.Reader
+	total      int64
+	read       int64
+	onProgress func(bytesRead, totalBytes int64)
+}
+
+type ProgressWriter struct {
+	writer     io.Writer
+	total      int64
+	written    int64
+	onProgress func(bytesWritten, totalBytes int64)
+}
+
+func (pr *ProgressReader) Read(p []byte) (int, error) {
+	n, err := pr.reader.Read(p)
+	pr.read += int64(n)
+	if pr.onProgress != nil {
+		pr.onProgress(pr.read, pr.total)
+	}
+	return n, err
+}
+
+func (pw *ProgressWriter) Write(p []byte) (int, error) {
+	n, err := pw.writer.Write(p)
+	pw.written += int64(n)
+	if pw.onProgress != nil {
+		pw.onProgress(pw.written, pw.total)
+	}
+	return n, err
 }
 
 var defaultClient = &Client{HTTPClient: &http.Client{}}
@@ -345,6 +379,14 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		if options.MaxBodyLength > 0 && bodyLength > int64(options.MaxBodyLength) {
 			return nil, errors.New("request body length exceeded maxBodyLength")
 		}
+
+		if options.Body != nil && options.OnUploadProgress != nil {
+			bodyReader = &ProgressReader{
+				reader:     bodyReader,
+				total:      bodyLength,
+				onProgress: options.OnUploadProgress,
+			}
+		}
 	}
 
 	req, err := http.NewRequest(options.Method, fullURL, bodyReader)
@@ -428,9 +470,24 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		}
 	}()
 
-	responseBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
+	var responseBody []byte
+	if options.OnDownloadProgress != nil {
+		buf := &bytes.Buffer{}
+		progressWriter := &ProgressWriter{
+			writer:     buf,
+			total:      resp.ContentLength,
+			onProgress: options.OnDownloadProgress,
+		}
+		_, err = io.Copy(progressWriter, resp.Body)
+		if err != nil {
+			return nil, err
+		}
+		responseBody = buf.Bytes()
+	} else {
+		responseBody, err = io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if int64(len(responseBody)) > int64(options.MaxContentLength) {
@@ -503,6 +560,12 @@ func mergeOptions(dst, src *RequestOptions) {
 	}
 	if src.InterceptorOptions.ResponseInterceptors != nil {
 		dst.InterceptorOptions.ResponseInterceptors = src.InterceptorOptions.ResponseInterceptors
+	}
+	if src.OnUploadProgress != nil {
+		dst.OnUploadProgress = src.OnUploadProgress
+	}
+	if src.OnDownloadProgress != nil {
+		dst.OnDownloadProgress = src.OnDownloadProgress
 	}
 	if src.Proxy != nil {
 		dst.Proxy = src.Proxy

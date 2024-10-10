@@ -1,9 +1,12 @@
 package axios4go
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -862,4 +865,56 @@ func TestGetByProxy(t *testing.T) {
 			t.Errorf("Expected message 'get success by proxy', got '%s'", result["message"])
 		}
 	})
+}
+
+func TestProgressCallbacks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Read the request body to trigger upload progress
+		_, err := io.Copy(io.Discard, r.Body)
+		if err != nil {
+			t.Fatalf("Failed to read request body: %v", err)
+		}
+
+		// Simulate a large file for download
+		w.Header().Set("Content-Length", "1000000")
+		for i := 0; i < 1000000; i++ {
+			_, err := w.Write([]byte("a"))
+			if err != nil {
+				t.Fatalf("Failed to write response: %v", err)
+			}
+		}
+	}))
+	defer server.Close()
+
+	uploadCalled := false
+	downloadCalled := false
+
+	body := bytes.NewReader([]byte(strings.Repeat("b", 500000))) // 500KB upload
+
+	_, err := Post(server.URL, body, &RequestOptions{
+		OnUploadProgress: func(bytesRead, totalBytes int64) {
+			uploadCalled = true
+			if bytesRead > totalBytes {
+				t.Errorf("Upload progress: bytesRead (%d) > totalBytes (%d)", bytesRead, totalBytes)
+			}
+		},
+		OnDownloadProgress: func(bytesRead, totalBytes int64) {
+			downloadCalled = true
+			if bytesRead > totalBytes {
+				t.Errorf("Download progress: bytesRead (%d) > totalBytes (%d)", bytesRead, totalBytes)
+			}
+		},
+		MaxContentLength: 2000000, // Set this to allow our 1MB response
+	})
+
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	if !uploadCalled {
+		t.Error("Upload progress callback was not called")
+	}
+	if !downloadCalled {
+		t.Error("Download progress callback was not called")
+	}
 }
