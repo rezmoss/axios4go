@@ -12,6 +12,8 @@ func setupTestServer() *httptest.Server {
 		switch r.URL.Path {
 		case "/get":
 			json.NewEncoder(w).Encode(map[string]string{"message": "get success"})
+		case "/getByProxy":
+			json.NewEncoder(w).Encode(map[string]string{"message": "get success by proxy"})
 		case "/post":
 			json.NewEncoder(w).Encode(map[string]string{"message": "post success"})
 		case "/put":
@@ -751,6 +753,113 @@ func TestInterceptors(t *testing.T) {
 
 		if response.Headers.Get("X-Intercepted-Response") != "true" {
 			t.Errorf("Expected response header 'X-Intercepted-Response' to be 'true', got '%s'", response.Headers.Get("X-Intercepted-Response"))
+		}
+	})
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	request, err := http.NewRequest(r.Method, r.RequestURI, nil)
+	client := http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		return
+	}
+	bytes := make([]byte, response.ContentLength)
+	response.Body.Read(bytes)
+	w.Write(bytes)
+}
+
+func TestGetByProxy(t *testing.T) {
+	server := setupTestServer()
+	defer server.Close()
+	path := "/getByProxy"
+	http.HandleFunc("/", handler)
+	go func() {
+		// start to mock a proxy server
+		err := http.ListenAndServe(":8080", nil)
+		if err != nil {
+			return
+		}
+	}()
+	t.Run("Simple Style", func(t *testing.T) {
+		response, err := Get(server.URL+path,
+			&RequestOptions{
+				Proxy: &Proxy{
+					Protocol: "http",
+					Host:     "localhost",
+					Port:     8080,
+					Auth: &Auth{
+						Username: "username",
+						Password: "password",
+					},
+				},
+			},
+		)
+
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
+		}
+
+		var result map[string]string
+		err = json.Unmarshal(response.Body, &result)
+		if err != nil {
+			t.Fatalf("Error unmarshaling response Body: %v", err)
+		}
+
+		if result["message"] != "get success by proxy" {
+			t.Errorf("Expected message 'get success by proxy', got '%s'", result["message"])
+		}
+	})
+
+	t.Run("Promise Style", func(t *testing.T) {
+		promise := GetAsync(server.URL + path)
+		var thenExecuted, finallyExecuted bool
+
+		promise.
+			Then(func(response *Response) {
+				// Assertions...
+				thenExecuted = true
+			}).
+			Catch(func(err error) {
+				t.Errorf("Expected no error, got %v", err)
+			}).
+			Finally(func() {
+				finallyExecuted = true
+			})
+
+		// Wait for the promise to complete
+		<-promise.done
+
+		if !thenExecuted {
+			t.Error("Then was not executed")
+		}
+		if !finallyExecuted {
+			t.Error("Finally was not executed")
+		}
+	})
+
+	t.Run("Request Style", func(t *testing.T) {
+		response, err := Request("GET", server.URL+path)
+		if err != nil {
+			t.Fatalf("Expected no error, got %v", err)
+		}
+
+		if response.StatusCode != http.StatusOK {
+			t.Errorf("Expected status code %d, got %d", http.StatusOK, response.StatusCode)
+		}
+
+		var result map[string]string
+		err = json.Unmarshal(response.Body, &result)
+		if err != nil {
+			t.Fatalf("Error unmarshaling response Body: %v", err)
+		}
+
+		if result["message"] != "get success by proxy" {
+			t.Errorf("Expected message 'get success by proxy', got '%s'", result["message"])
 		}
 	})
 }

@@ -59,6 +59,14 @@ type RequestOptions struct {
 	Decompress         bool
 	ValidateStatus     func(int) bool
 	InterceptorOptions InterceptorOptions
+	Proxy              *Proxy
+}
+
+type Proxy struct {
+	Protocol string
+	Host     string
+	Port     int
+	Auth     *Auth
 }
 
 type Auth struct {
@@ -382,6 +390,30 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		}
 	}
 
+	if options.Proxy != nil {
+		// support http and https
+		proxyStr := fmt.Sprintf("%s://%s:%d", options.Proxy.Protocol, options.Proxy.Host, options.Proxy.Port)
+		proxyURL, err := url.Parse(proxyStr)
+		if err != nil {
+			return nil, err
+		}
+		transport := &http.Transport{
+			Proxy: http.ProxyURL(proxyURL),
+		}
+		if options.Proxy.Auth != nil {
+			auth := options.Proxy.Auth.Username + ":" + options.Proxy.Auth.Password
+			basicAuth := base64.StdEncoding.EncodeToString([]byte(auth))
+			transport.ProxyConnectHeader = http.Header{
+				"Proxy-Authorization": {"Basic " + basicAuth},
+			}
+		}
+		c.HTTPClient.Transport = transport
+		// cancel proxy after request
+		defer func() {
+			c.HTTPClient.Transport = nil
+		}()
+	}
+
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -471,6 +503,9 @@ func mergeOptions(dst, src *RequestOptions) {
 	}
 	if src.InterceptorOptions.ResponseInterceptors != nil {
 		dst.InterceptorOptions.ResponseInterceptors = src.InterceptorOptions.ResponseInterceptors
+	}
+	if src.Proxy != nil {
+		dst.Proxy = src.Proxy
 	}
 	dst.Decompress = src.Decompress
 }
