@@ -46,7 +46,7 @@ func main() {
 		return
 	}
 
-	fmt.Println("\nDownload completed successfully!")
+	fmt.Println("\nDownload completed successfully!!")
 }
 
 func writeResponseToFile(resp *axios4go.Response, outputPath string) error {
