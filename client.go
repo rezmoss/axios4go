@@ -17,6 +17,7 @@ import (
 type Client struct {
 	BaseURL    string
 	HTTPClient *http.Client
+	Logger     Logger
 }
 
 type Response struct {
@@ -62,6 +63,7 @@ type RequestOptions struct {
 	Proxy              *Proxy
 	OnUploadProgress   func(bytesRead, totalBytes int64)
 	OnDownloadProgress func(bytesRead, totalBytes int64)
+	LogLevel           LogLevel
 }
 
 type Proxy struct {
@@ -108,7 +110,7 @@ func (pw *ProgressWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-var defaultClient = &Client{HTTPClient: &http.Client{}}
+var defaultClient = &Client{HTTPClient: &http.Client{}, Logger: NewLogger(LevelNone)}
 
 func (r *Response) JSON(v interface{}) error {
 	return json.Unmarshal(r.Body, v)
@@ -327,6 +329,7 @@ func RequestAsync(method, urlStr string, options ...*RequestOptions) *Promise {
 }
 
 func (c *Client) Request(options *RequestOptions) (*Response, error) {
+	startTime := time.Now()
 	var fullURL string
 	if c.BaseURL != "" {
 		var err error
@@ -421,6 +424,10 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		req.Header.Set("Authorization", "Basic "+basicAuth)
 	}
 
+	if c.Logger != nil {
+		c.Logger.LogRequest(req, options.LogLevel)
+	}
+
 	c.HTTPClient.Timeout = time.Duration(options.Timeout) * time.Millisecond
 
 	if options.MaxRedirects > 0 {
@@ -458,8 +465,12 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
+		if c.Logger != nil {
+			c.Logger.LogError(err, options.LogLevel)
+		}
 		return nil, err
 	}
+
 	defer func() {
 		if cerr := resp.Body.Close(); cerr != nil {
 			if err != nil {
@@ -488,6 +499,15 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		if err != nil {
 			return nil, err
 		}
+
+	}
+
+	// Calculate request duration
+	duration := time.Since(startTime)
+
+	// Log the response
+	if c.Logger != nil {
+		c.Logger.LogResponse(resp, responseBody, duration, options.LogLevel)
 	}
 
 	if int64(len(responseBody)) > int64(options.MaxContentLength) {
@@ -581,5 +601,6 @@ func NewClient(baseURL string) *Client {
 	return &Client{
 		BaseURL:    baseURL,
 		HTTPClient: &http.Client{},
+		Logger:     NewLogger(LevelNone),
 	}
 }

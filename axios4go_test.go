@@ -918,3 +918,95 @@ func TestProgressCallbacks(t *testing.T) {
 		t.Error("Download progress callback was not called")
 	}
 }
+
+func TestLogging(t *testing.T) {
+	server := setupTestServer()
+	defer server.Close()
+
+	t.Run("Test Logger Integration", func(t *testing.T) {
+		var buf bytes.Buffer
+		logger := NewDefaultLogger(LogOptions{
+			Level:          LevelDebug,
+			Output:         &buf,
+			IncludeBody:    true,
+			IncludeHeaders: true,
+			MaskHeaders:    []string{"Authorization"},
+		})
+
+		client := &Client{
+			HTTPClient: &http.Client{},
+			Logger:     logger,
+		}
+
+		// Test with sensitive headers
+		reqOptions := &RequestOptions{
+			Method:   "POST",
+			Url:      server.URL + "/post",
+			LogLevel: LevelDebug,
+			Headers: map[string]string{
+				"Authorization": "Bearer secret-token",
+				"X-Test":        "test-value",
+			},
+			Body:             map[string]string{"test": "data"},
+			MaxContentLength: 2000, // Add this line
+		}
+
+		_, err := client.Request(reqOptions)
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+
+		logOutput := buf.String()
+
+		// Verify request logging
+		if !strings.Contains(logOutput, "REQUEST: POST") {
+			t.Error("Log should contain request method")
+		}
+		if !strings.Contains(logOutput, "[MASKED]") {
+			t.Error("Authorization header should be masked")
+		}
+		if !strings.Contains(logOutput, "test-value") {
+			t.Error("Non-sensitive header should be visible")
+		}
+		if !strings.Contains(logOutput, "test") {
+			t.Error("Request body should be logged")
+		}
+
+		// Verify response logging
+		if !strings.Contains(logOutput, "RESPONSE: 200") {
+			t.Error("Log should contain response status")
+		}
+		if !strings.Contains(logOutput, "post success") {
+			t.Error("Response body should be logged")
+		}
+	})
+
+	t.Run("Test Log Levels", func(t *testing.T) {
+		var buf bytes.Buffer
+		logger := NewDefaultLogger(LogOptions{
+			Level:  LevelError,
+			Output: &buf,
+		})
+
+		client := &Client{
+			HTTPClient: &http.Client{},
+			Logger:     logger,
+		}
+
+		// Debug level request should not be logged when logger is at Error level
+		_, err := client.Request(&RequestOptions{
+			Method:           "GET",
+			Url:              server.URL + "/get",
+			LogLevel:         LevelDebug,
+			MaxContentLength: 2000, // Add this line
+		})
+
+		if err != nil {
+			t.Fatalf("Request failed: %v", err)
+		}
+
+		if buf.Len() > 0 {
+			t.Error("Debug level request should not be logged when logger is at Error level")
+		}
+	})
+}
