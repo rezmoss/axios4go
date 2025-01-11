@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// LogLevel represents different logging levels
+// LogLevel represents different logging level
 type LogLevel int
 
 const (
