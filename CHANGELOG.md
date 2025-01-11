@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/rezmoss/axios4go/compare/v0.5.0...v0.6.0) (2025-01-11)
+
+
+### Features
+
+* Logger ([bd783eb](https://github.com/rezmoss/axios4go/commit/bd783eb52b891783271b0920984d1c52f8d280e5))
+
 ## [0.5.0](https://github.com/rezmoss/axios4go/compare/v0.4.0...v0.5.0) (2024-10-10)
 
 
