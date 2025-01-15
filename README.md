@@ -60,6 +60,7 @@ package main
 
 import (
     "fmt"
+
     "github.com/rezmoss/axios4go"
 )
 
@@ -126,7 +127,7 @@ client := axios4go.NewClient("https://api.example.com")
 
 resp, err := client.Request(&axios4go.RequestOptions{
     Method: "GET",
-    Url:    "/users",
+    URL:    "/users",
     Headers: map[string]string{
         "Authorization": "Bearer token",
     },
@@ -200,7 +201,7 @@ resp, err := axios4go.Get("https://api.example.com/data", options)
 `axios4go` supports various configuration options through the `RequestOptions` struct:
 
 - **Method**: HTTP method (`GET`, `POST`, etc.)
-- **Url**: Request URL (relative to `BaseURL` if provided)
+- **URL**: Request URL (relative to `BaseURL` if provided)
 - **BaseURL**: Base URL for the request (overrides client's `BaseURL` if set)
 - **Params**: URL query parameters (`map[string]string`)
 - **Body**: Request body (can be `string`, `[]byte`, or any JSON serializable object)
@@ -224,7 +225,7 @@ resp, err := axios4go.Get("https://api.example.com/data", options)
 ```go
 options := &axios4go.RequestOptions{
     Method: "POST",
-    Url:    "/submit",
+    URL:    "/submit",
     Headers: map[string]string{
         "Content-Type": "application/json",
     },

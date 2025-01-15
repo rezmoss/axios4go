@@ -9,9 +9,15 @@ linters:
     - gosimple
     - govet
     - ineffassign
+    - revive
     - staticcheck
     - typecheck
     - unused
+
+linters-settings:
+  revive:
+    rules:
+      - name: var-naming
 
 issues:
   exclude-use-default: false

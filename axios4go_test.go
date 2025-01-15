@@ -701,7 +701,6 @@ func TestValidateStatus(t *testing.T) {
 			t.Errorf("Expected error Request failed with status code: 200, got %v", err.Error())
 		}
 	})
-
 }
 
 func TestInterceptors(t *testing.T) {
@@ -798,7 +797,6 @@ func TestGetByProxy(t *testing.T) {
 				},
 			},
 		)
-
 		if err != nil {
 			t.Fatalf("Expected no error, got %v", err)
 		}
@@ -906,7 +904,6 @@ func TestProgressCallbacks(t *testing.T) {
 		},
 		MaxContentLength: 2000000, // Set this to allow our 1MB response
 	})
-
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
@@ -941,7 +938,7 @@ func TestLogging(t *testing.T) {
 		// Test with sensitive headers
 		reqOptions := &RequestOptions{
 			Method:   "POST",
-			Url:      server.URL + "/post",
+			URL:      server.URL + "/post",
 			LogLevel: LevelDebug,
 			Headers: map[string]string{
 				"Authorization": "Bearer secret-token",
@@ -996,11 +993,10 @@ func TestLogging(t *testing.T) {
 		// Debug level request should not be logged when logger is at Error level
 		_, err := client.Request(&RequestOptions{
 			Method:           "GET",
-			Url:              server.URL + "/get",
+			URL:              server.URL + "/get",
 			LogLevel:         LevelDebug,
 			MaxContentLength: 2000, // Add this line
 		})
-
 		if err != nil {
 			t.Fatalf("Request failed: %v", err)
 		}
