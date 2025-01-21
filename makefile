@@ -66,9 +66,10 @@ cyclo:
 
 # Check examples
 check-examples:
-	@for file in examples/*.go; do \
-		echo "Checking $$file"; \
-		$(GOCMD) build -o /dev/null $$file || exit 1; \
+	@echo "Checking Go files in examples/ ..."
+	@find examples -type f -name '*.go' | while read file; do \
+		echo "  Checking $$file"; \
+		$(GOCMD) build -o /dev/null "$$file" || exit 1; \
 	done
 
 # Run all checks and tests
