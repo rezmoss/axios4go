@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/rezmoss/axios4go/compare/v0.6.0...v0.6.1) (2025-01-21)
+
+
+### Bug Fixes
+
+* respect Go initialism and acronyms ([6105a93](https://github.com/rezmoss/axios4go/commit/6105a9344165089baec3b8264331965bf07113e7))
+
 ## [0.6.0](https://github.com/rezmoss/axios4go/compare/v0.5.0...v0.6.0) (2025-01-11)
 
 
