@@ -45,7 +45,7 @@ type InterceptorOptions struct {
 
 type RequestOptions struct {
 	Method             string
-	Url                string
+	URL                string
 	BaseURL            string
 	Params             map[string]string
 	Body               interface{}
@@ -301,7 +301,7 @@ func PatchAsync(urlStr string, body interface{}, options ...*RequestOptions) *Pr
 func Request(method, urlStr string, options ...*RequestOptions) (*Response, error) {
 	reqOptions := &RequestOptions{
 		Method:           "GET",
-		Url:              urlStr,
+		URL:              urlStr,
 		Timeout:          1000,
 		ResponseType:     "json",
 		ResponseEncoding: "utf8",
@@ -333,18 +333,18 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 	var fullURL string
 	if c.BaseURL != "" {
 		var err error
-		fullURL, err = url.JoinPath(c.BaseURL, options.Url)
+		fullURL, err = url.JoinPath(c.BaseURL, options.URL)
 		if err != nil {
 			return nil, err
 		}
 	} else if options.BaseURL != "" {
 		var err error
-		fullURL, err = url.JoinPath(options.BaseURL, options.Url)
+		fullURL, err = url.JoinPath(options.BaseURL, options.URL)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		fullURL = options.Url
+		fullURL = options.URL
 	}
 
 	if len(options.Params) > 0 {
@@ -431,7 +431,7 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 	c.HTTPClient.Timeout = time.Duration(options.Timeout) * time.Millisecond
 
 	if options.MaxRedirects > 0 {
-		c.HTTPClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		c.HTTPClient.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
 			if len(via) >= options.MaxRedirects {
 				return http.ErrUseLastResponse
 			}
@@ -536,8 +536,8 @@ func mergeOptions(dst, src *RequestOptions) {
 	if src.Method != "" {
 		dst.Method = src.Method
 	}
-	if src.Url != "" {
-		dst.Url = src.Url
+	if src.URL != "" {
+		dst.URL = src.URL
 	}
 	if src.BaseURL != "" {
 		dst.BaseURL = src.BaseURL
