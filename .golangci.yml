@@ -1,5 +1,4 @@
 run:
-  go: '1.20'
   timeout: 5m
   modules-download-mode: readonly
 linters:
@@ -10,7 +9,6 @@ linters:
     - govet
     - ineffassign
     - staticcheck
-    - typecheck
     - unused
 
 issues:
@@ -19,6 +17,6 @@ issues:
     - ".*_test.go"
   exclude-dirs:
     - vendor
-    - examples  
+    - examples
 output:
   formats: colored-line-number
