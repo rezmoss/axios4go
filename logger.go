@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// LogLevel represents different logging level
 type LogLevel int
 
 const (
@@ -20,7 +19,6 @@ const (
 	LevelDebug
 )
 
-// Logger interface defines methods for logging HTTP requests and responses
 type Logger interface {
 	LogRequest(*http.Request, LogLevel)
 	LogResponse(*http.Response, []byte, time.Duration, LogLevel)
@@ -28,7 +26,6 @@ type Logger interface {
 	SetLevel(LogLevel)
 }
 
-// LogOptions contains configuration for logging
 type LogOptions struct {
 	Level          LogLevel
 	MaxBodyLength  int
@@ -39,12 +36,10 @@ type LogOptions struct {
 	IncludeHeaders bool
 }
 
-// DefaultLogger implements the Logger interface
 type DefaultLogger struct {
 	options LogOptions
 }
 
-// NewDefaultLogger creates a new DefaultLogger with the given options
 func NewDefaultLogger(options LogOptions) *DefaultLogger {
 	if options.Output == nil {
 		options.Output = os.Stdout
@@ -58,12 +53,10 @@ func NewDefaultLogger(options LogOptions) *DefaultLogger {
 	return &DefaultLogger{options: options}
 }
 
-// SetLevel sets the logging level
 func (l *DefaultLogger) SetLevel(level LogLevel) {
 	l.options.Level = level
 }
 
-// LogRequest logs HTTP request details
 func (l *DefaultLogger) LogRequest(req *http.Request, level LogLevel) {
 	if level > l.options.Level {
 		return
@@ -100,7 +93,6 @@ func (l *DefaultLogger) LogRequest(req *http.Request, level LogLevel) {
 	fmt.Fprintln(l.options.Output, buf.String())
 }
 
-// LogResponse logs HTTP response details
 func (l *DefaultLogger) LogResponse(resp *http.Response, body []byte, duration time.Duration, level LogLevel) {
 	if level > l.options.Level {
 		return
@@ -134,7 +126,6 @@ func (l *DefaultLogger) LogResponse(resp *http.Response, body []byte, duration t
 	fmt.Fprintln(l.options.Output, buf.String())
 }
 
-// LogError logs error details
 func (l *DefaultLogger) LogError(err error, level LogLevel) {
 	if level > l.options.Level {
 		return
@@ -144,7 +135,6 @@ func (l *DefaultLogger) LogError(err error, level LogLevel) {
 	fmt.Fprintf(l.options.Output, "[%s] ERROR: %v\n", timestamp, err)
 }
 
-// isHeaderMasked checks if a header should be masked
 func (l *DefaultLogger) isHeaderMasked(header string) bool {
 	header = strings.ToLower(header)
 	for _, masked := range l.options.MaskHeaders {
@@ -155,7 +145,6 @@ func (l *DefaultLogger) isHeaderMasked(header string) bool {
 	return false
 }
 
-// Helper function to create a new logger with common defaults
 func NewLogger(level LogLevel) Logger {
 	return NewDefaultLogger(LogOptions{
 		Level:          level,

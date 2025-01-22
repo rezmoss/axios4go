@@ -329,6 +329,45 @@ func RequestAsync(method, urlStr string, options ...*RequestOptions) *Promise {
 }
 
 func (c *Client) Request(options *RequestOptions) (*Response, error) {
+	if options.Timeout == 0 {
+		options.Timeout = 1000
+	}
+	if options.MaxContentLength == 0 {
+		options.MaxContentLength = 2000
+	}
+	if options.MaxBodyLength == 0 {
+		options.MaxBodyLength = 2000
+	}
+	if options.ResponseType == "" {
+		options.ResponseType = "json"
+	}
+	if options.ResponseEncoding == "" {
+		options.ResponseEncoding = "utf8"
+	}
+	if options.MaxRedirects == 0 {
+		options.MaxRedirects = 21
+	}
+	if options.Method == "" {
+		options.Method = "GET"
+	}
+	if !options.Decompress {
+		options.Decompress = true
+	}
+
+	validMethods := map[string]bool{
+		"GET":     true,
+		"POST":    true,
+		"PUT":     true,
+		"DELETE":  true,
+		"PATCH":   true,
+		"HEAD":    true,
+		"OPTIONS": true,
+	}
+	upperMethod := strings.ToUpper(options.Method)
+	if !validMethods[upperMethod] {
+		return nil, fmt.Errorf("invalid HTTP method: %q", options.Method)
+	}
+
 	startTime := time.Now()
 	var fullURL string
 	if c.BaseURL != "" {
@@ -433,14 +472,13 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 	if options.MaxRedirects > 0 {
 		c.HTTPClient.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
 			if len(via) >= options.MaxRedirects {
-				return http.ErrUseLastResponse
+				return fmt.Errorf("too many redirects (max: %d)", options.MaxRedirects)
 			}
 			return nil
 		}
 	}
 
 	if options.Proxy != nil {
-		// support http and https
 		proxyStr := fmt.Sprintf("%s://%s:%d", options.Proxy.Protocol, options.Proxy.Host, options.Proxy.Port)
 		proxyURL, err := url.Parse(proxyStr)
 		if err != nil {
@@ -457,7 +495,6 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 			}
 		}
 		c.HTTPClient.Transport = transport
-		// cancel proxy after request
 		defer func() {
 			c.HTTPClient.Transport = nil
 		}()
@@ -502,10 +539,8 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 
 	}
 
-	// Calculate request duration
 	duration := time.Since(startTime)
 
-	// Log the response
 	if c.Logger != nil {
 		c.Logger.LogResponse(resp, responseBody, duration, options.LogLevel)
 	}
