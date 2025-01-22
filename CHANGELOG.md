@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/rezmoss/axios4go/compare/v0.6.1...v0.6.2) (2025-01-22)
+
+
+### Bug Fixes
+
+* cover more tests, fixed [#4](https://github.com/rezmoss/axios4go/issues/4) ([26ef773](https://github.com/rezmoss/axios4go/commit/26ef7730714130b31a89a9cc37c62837d11367b6))
+
 ## [0.6.1](https://github.com/rezmoss/axios4go/compare/v0.6.0...v0.6.1) (2025-01-21)
 
 
