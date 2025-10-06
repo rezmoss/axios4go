@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.3](https://github.com/rezmoss/axios4go/compare/v0.6.2...v0.6.3) (2025-10-06)
+
+
+### Bug Fixes
+
+* prevent memory exhaustion in response size check ([c3f98aa](https://github.com/rezmoss/axios4go/commit/c3f98aa064ef67e651e7126265bcb7f2952952bd))
+* prevent memory exhaustion in response size check ([04f4cac](https://github.com/rezmoss/axios4go/commit/04f4cacc7b7b3e70ba9bcf9527d4f35afa829604))
+
 ## [0.6.2](https://github.com/rezmoss/axios4go/compare/v0.6.1...v0.6.2) (2025-01-22)
 
 
