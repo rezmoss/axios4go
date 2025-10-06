@@ -519,6 +519,8 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 	}()
 
 	var responseBody []byte
+	limitedReader := io.LimitReader(resp.Body, options.MaxContentLength+1)
+
 	if options.OnDownloadProgress != nil {
 		buf := &bytes.Buffer{}
 		progressWriter := &ProgressWriter{
@@ -526,27 +528,26 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 			total:      resp.ContentLength,
 			onProgress: options.OnDownloadProgress,
 		}
-		_, err = io.Copy(progressWriter, resp.Body)
+		_, err = io.Copy(progressWriter, limitedReader)
 		if err != nil {
 			return nil, err
 		}
 		responseBody = buf.Bytes()
 	} else {
-		responseBody, err = io.ReadAll(resp.Body)
+		responseBody, err = io.ReadAll(limitedReader)
 		if err != nil {
 			return nil, err
 		}
+	}
 
+	if int64(len(responseBody)) > options.MaxContentLength {
+		return nil, errors.New("response content length exceeded maxContentLength")
 	}
 
 	duration := time.Since(startTime)
 
 	if c.Logger != nil {
 		c.Logger.LogResponse(resp, responseBody, duration, options.LogLevel)
-	}
-
-	if int64(len(responseBody)) > int64(options.MaxContentLength) {
-		return nil, errors.New("response content length exceeded maxContentLength")
 	}
 
 	if options.ValidateStatus != nil && !(options.ValidateStatus(resp.StatusCode)) {
