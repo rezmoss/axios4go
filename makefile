@@ -25,13 +25,13 @@ build:
 	$(GOBUILD) -o $(BINARY_NAME) -v
 
 test:
-	$(GOTEST) $(TEST_FLAGS) $(shell go list ./... | grep -v /examples)
+	CGO_ENABLED=0 $(GOTEST) $(TEST_FLAGS) $(shell go list ./... | grep -v /examples)
 
 test-race:
 	$(GOTEST) $(TEST_FLAGS) $(RACE_FLAGS) $(shell go list ./... | grep -v /examples)
 
 test-coverage:
-	$(GOTEST) $(TEST_FLAGS) $(COVERAGE_FLAGS) $(shell go list ./... | grep -v /examples)
+	CGO_ENABLED=0 $(GOTEST) $(TEST_FLAGS) $(COVERAGE_FLAGS) $(shell go list ./... | grep -v /examples)
 	$(GOCOVER) -func=coverage.out
 
 test-all: test test-race test-coverage
