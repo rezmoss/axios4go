@@ -28,7 +28,7 @@ test:
 	CGO_ENABLED=0 $(GOTEST) $(TEST_FLAGS) $(shell go list ./... | grep -v /examples)
 
 test-race:
-	CGO_ENABLED=0 $(GOTEST) $(TEST_FLAGS) $(RACE_FLAGS) $(shell go list ./... | grep -v /examples)
+	$(GOTEST) $(TEST_FLAGS) $(RACE_FLAGS) $(shell go list ./... | grep -v /examples)
 
 test-coverage:
 	CGO_ENABLED=0 $(GOTEST) $(TEST_FLAGS) $(COVERAGE_FLAGS) $(shell go list ./... | grep -v /examples)
