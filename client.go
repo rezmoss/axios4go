@@ -467,10 +467,12 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		c.Logger.LogRequest(req, options.LogLevel)
 	}
 
-	c.HTTPClient.Timeout = time.Duration(options.Timeout) * time.Millisecond
+	httpClient := &http.Client{
+		Timeout: time.Duration(options.Timeout) * time.Millisecond,
+	}
 
 	if options.MaxRedirects > 0 {
-		c.HTTPClient.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
+		httpClient.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
 			if len(via) >= options.MaxRedirects {
 				return fmt.Errorf("too many redirects (max: %d)", options.MaxRedirects)
 			}
@@ -494,13 +496,10 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 				"Proxy-Authorization": {"Basic " + basicAuth},
 			}
 		}
-		c.HTTPClient.Transport = transport
-		defer func() {
-			c.HTTPClient.Transport = nil
-		}()
+		httpClient.Transport = transport
 	}
 
-	resp, err := c.HTTPClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		if c.Logger != nil {
 			c.Logger.LogError(err, options.LogLevel)
