@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== axios4go Caching Examples ===\n")
+	fmt.Println("=== axios4go Caching Examples ===")
 
 	// Example 1: Basic caching setup
 	basicCachingExample()
@@ -119,7 +119,7 @@ func perRequestTTLExample() {
 		log.Printf("Request error: %v\n", err)
 		return
 	}
-	fmt.Println("Request completed with custom 1-hour TTL\n")
+	fmt.Println("Request completed with custom 1-hour TTL")
 }
 
 // Example 3: Force refresh to bypass cache
