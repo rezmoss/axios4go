@@ -79,4 +79,11 @@ check: fmt vet cyclo test-all check-examples
 install-gocyclo:
 	@which gocyclo > /dev/null || go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
 
-.PHONY: all build test test-race test-coverage test-all benchmark clean run deps fmt vet cyclo check-examples check install-gocyclo
+# GoReleaser targets
+release-snapshot:
+	goreleaser release --snapshot --clean
+
+release-check:
+	goreleaser check
+
+.PHONY: all build test test-race test-coverage test-all benchmark clean run deps fmt vet cyclo check-examples check install-gocyclo release-snapshot release-check

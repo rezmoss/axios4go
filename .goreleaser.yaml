@@ -1,0 +1,44 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go test -v ./...
+
+builds: []  # No binaries - library only
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Other Changes
+      order: 999
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^ci:'
+      - Merge pull request
+      - Merge branch
+
+release:
+  github:
+    owner: rezmoss
+    name: axios4go
+  draft: false
+  prerelease: auto
+  header: |
+    ## axios4go {{ .Version }}
+
+    ### Installation
+    ```bash
+    go get -u github.com/rezmoss/axios4go@{{ .Tag }}
+    ```
+  footer: |
+    **Full Changelog**: https://github.com/rezmoss/axios4go/compare/{{ .PreviousTag }}...{{ .Tag }}
