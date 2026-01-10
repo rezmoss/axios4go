@@ -5,7 +5,9 @@ before:
     - go mod tidy
     - go test -v ./...
 
-builds: []  # No binaries - library only
+# Library-only: skip binary builds entirely
+builds:
+  - skip: true
 
 changelog:
   sort: asc
