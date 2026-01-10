@@ -22,7 +22,8 @@ jobs:
 
     - name: Run all checks and tests
       run: |
-        make test-all 
+        go vet ./...
+        make test-all
         make check-examples
 
   format:
