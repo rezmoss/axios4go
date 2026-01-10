@@ -172,18 +172,34 @@ func TestMemoryCache_MaxSize(t *testing.T) {
 	})
 	defer cache.Close()
 
-	entry := &CacheEntry{
-		Body:       []byte(`{"message":"test"}`),
+	// Create separate entries with distinct CreatedAt times
+	entry1 := &CacheEntry{
+		Body:       []byte(`{"message":"test1"}`),
 		StatusCode: 200,
 		Headers:    http.Header{},
 		CreatedAt:  time.Now(),
 	}
+	cache.Set("key1", entry1, 1*time.Minute)
 
-	cache.Set("key1", entry, 1*time.Minute)
 	time.Sleep(10 * time.Millisecond) // Ensure different CreatedAt
-	cache.Set("key2", entry, 1*time.Minute)
+
+	entry2 := &CacheEntry{
+		Body:       []byte(`{"message":"test2"}`),
+		StatusCode: 200,
+		Headers:    http.Header{},
+		CreatedAt:  time.Now(),
+	}
+	cache.Set("key2", entry2, 1*time.Minute)
+
 	time.Sleep(10 * time.Millisecond)
-	cache.Set("key3", entry, 1*time.Minute) // Should evict key1
+
+	entry3 := &CacheEntry{
+		Body:       []byte(`{"message":"test3"}`),
+		StatusCode: 200,
+		Headers:    http.Header{},
+		CreatedAt:  time.Now(),
+	}
+	cache.Set("key3", entry3, 1*time.Minute) // Should evict key1 (oldest)
 
 	stats := cache.Stats()
 	if stats.Size != 2 {
@@ -193,6 +209,14 @@ func TestMemoryCache_MaxSize(t *testing.T) {
 	// key1 should be evicted (oldest)
 	if cache.Get("key1") != nil {
 		t.Error("Expected key1 to be evicted")
+	}
+
+	// key2 and key3 should still exist
+	if cache.Get("key2") == nil {
+		t.Error("Expected key2 to exist")
+	}
+	if cache.Get("key3") == nil {
+		t.Error("Expected key3 to exist")
 	}
 }
 
