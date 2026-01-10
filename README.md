@@ -21,6 +21,7 @@ axios4go is a Go HTTP client library inspired by [Axios](https://github.com/axio
   - [Using Interceptors](#using-interceptors)
   - [Handling Progress](#handling-progress)
   - [Using Proxy](#using-proxy)
+  - [Response Caching](#response-caching)
 - [Configuration Options](#configuration-options)
 - [Contributing](#contributing)
 - [License](#license)
@@ -40,6 +41,7 @@ axios4go is a Go HTTP client library inspired by [Axios](https://github.com/axio
 - Upload and download progress tracking
 - Proxy support
 - Configurable max content length and body length
+- Response caching with pluggable storage backends
 
 ## Installation
 
@@ -196,6 +198,91 @@ options := &axios4go.RequestOptions{
 resp, err := axios4go.Get("https://api.example.com/data", options)
 ```
 
+### Response Caching
+
+axios4go supports response caching to reduce network calls. Caching is opt-in and disabled by default.
+
+#### Basic Usage
+
+```go
+import (
+    "time"
+    "github.com/rezmoss/axios4go"
+)
+
+// Create a memory cache
+cache := axios4go.NewMemoryCache(&axios4go.MemoryCacheOptions{
+    MaxSize:         1000,              // Max entries (0 = unlimited)
+    CleanupInterval: 5 * time.Minute,   // Cleanup expired entries
+})
+defer cache.Close()
+
+// Create client with cache
+client := axios4go.NewClientWithCache("https://api.example.com", &axios4go.CacheConfig{
+    Cache:      cache,
+    DefaultTTL: 5 * time.Minute,
+})
+
+// Enable caching for a request
+resp, err := client.Request(&axios4go.RequestOptions{
+    Method: "GET",
+    URL:    "/users",
+    Cache:  axios4go.CacheEnabled(10 * time.Minute),
+})
+```
+
+#### Force Refresh
+
+```go
+// Bypass cache and fetch fresh data
+resp, err := client.Request(&axios4go.RequestOptions{
+    Method: "GET",
+    URL:    "/users",
+    Cache: &axios4go.RequestCacheOptions{
+        Enabled:      axios4go.Bool(true),
+        TTL:          5 * time.Minute,
+        ForceRefresh: true,
+    },
+})
+```
+
+#### Custom Cache Key
+
+```go
+// Use custom key function to include headers in cache key
+client := axios4go.NewClientWithCache("https://api.example.com", &axios4go.CacheConfig{
+    Cache:      cache,
+    DefaultTTL: 5 * time.Minute,
+    KeyFunc: func(method, fullURL string, headers map[string]string) string {
+        return method + ":" + fullURL + ":" + headers["Authorization"]
+    },
+})
+```
+
+#### Cache Statistics
+
+```go
+stats := client.CacheStats()
+fmt.Printf("Hits: %d, Misses: %d, Size: %d\n", stats.Hits, stats.Misses, stats.Size)
+
+// Clear cache
+client.ClearCache()
+```
+
+#### Custom Cache Implementation
+
+Implement the `Cache` interface for custom storage (Redis, file, etc.):
+
+```go
+type Cache interface {
+    Get(key string) *CacheEntry
+    Set(key string, entry *CacheEntry, ttl time.Duration)
+    Delete(key string)
+    Clear()
+    Stats() CacheStats
+}
+```
+
 ## Configuration Options
 
 `axios4go` supports various configuration options through the `RequestOptions` struct:
@@ -219,6 +306,7 @@ resp, err := axios4go.Get("https://api.example.com/data", options)
 - **Proxy**: Proxy configuration
 - **OnUploadProgress**: Function to track upload progress
 - **OnDownloadProgress**: Function to track download progress
+- **Cache**: Per-request cache configuration (`CacheEnabled(ttl)` or `&RequestCacheOptions{...}`)
 
 **Example**:
 

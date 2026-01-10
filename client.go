@@ -15,9 +15,10 @@ import (
 )
 
 type Client struct {
-	BaseURL    string
-	HTTPClient *http.Client
-	Logger     Logger
+	BaseURL     string
+	HTTPClient  *http.Client
+	Logger      Logger
+	CacheConfig *CacheConfig
 }
 
 type Response struct {
@@ -64,6 +65,7 @@ type RequestOptions struct {
 	OnUploadProgress   func(bytesRead, totalBytes int64)
 	OnDownloadProgress func(bytesRead, totalBytes int64)
 	LogLevel           LogLevel
+	Cache              *RequestCacheOptions
 }
 
 type Proxy struct {
@@ -399,6 +401,22 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		fullURL = parsedURL.String()
 	}
 
+	// Cache check: try to get cached response before making request
+	var cacheKey string
+	shouldCache := shouldCacheRequest(c.CacheConfig, options)
+
+	if shouldCache && !shouldForceRefresh(options) {
+		cacheKey = generateCacheKey(c.CacheConfig, options, fullURL)
+		if cachedEntry := c.CacheConfig.Cache.Get(cacheKey); cachedEntry != nil {
+			// Return cached response
+			return &Response{
+				StatusCode: cachedEntry.StatusCode,
+				Headers:    cachedEntry.Headers,
+				Body:       cachedEntry.Body,
+			}, nil
+		}
+	}
+
 	var bodyReader io.Reader
 	var bodyLength int64
 
@@ -560,6 +578,22 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		}
 	}
 
+	// Cache store: save successful response to cache
+	if shouldCache && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		ttl := getCacheTTL(c.CacheConfig, options)
+		if ttl > 0 {
+			if cacheKey == "" {
+				cacheKey = generateCacheKey(c.CacheConfig, options, fullURL)
+			}
+			c.CacheConfig.Cache.Set(cacheKey, &CacheEntry{
+				Body:       responseBody,
+				StatusCode: resp.StatusCode,
+				Headers:    resp.Header.Clone(),
+				CreatedAt:  time.Now(),
+			}, ttl)
+		}
+	}
+
 	return &Response{
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
@@ -625,6 +659,9 @@ func mergeOptions(dst, src *RequestOptions) {
 	if src.Proxy != nil {
 		dst.Proxy = src.Proxy
 	}
+	if src.Cache != nil {
+		dst.Cache = src.Cache
+	}
 	dst.Decompress = src.Decompress
 }
 
@@ -638,4 +675,35 @@ func NewClient(baseURL string) *Client {
 		HTTPClient: &http.Client{},
 		Logger:     NewLogger(LevelNone),
 	}
+}
+
+// NewClientWithCache creates a client with cache enabled
+func NewClientWithCache(baseURL string, cacheConfig *CacheConfig) *Client {
+	return &Client{
+		BaseURL:     baseURL,
+		HTTPClient:  &http.Client{},
+		Logger:      NewLogger(LevelNone),
+		CacheConfig: cacheConfig,
+	}
+}
+
+// SetCache sets the cache configuration for the client
+func (c *Client) SetCache(config *CacheConfig) {
+	c.CacheConfig = config
+}
+
+// ClearCache clears all entries in the client's cache
+func (c *Client) ClearCache() {
+	if c.CacheConfig != nil && c.CacheConfig.Cache != nil {
+		c.CacheConfig.Cache.Clear()
+	}
+}
+
+// CacheStats returns the cache statistics
+func (c *Client) CacheStats() *CacheStats {
+	if c.CacheConfig != nil && c.CacheConfig.Cache != nil {
+		stats := c.CacheConfig.Cache.Stats()
+		return &stats
+	}
+	return nil
 }

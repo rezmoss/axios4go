@@ -1453,3 +1453,353 @@ func TestNonHTTPBaseURL(t *testing.T) {
 
 	t.Logf("NonHTTP_BaseURL test got expected error: %v", err)
 }
+
+// Cache Integration Tests
+
+func setupCacheTestServer() *httptest.Server {
+	requestCount := 0
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		switch r.URL.Path {
+		case "/cacheable":
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"message":      "cacheable response",
+				"requestCount": requestCount,
+			})
+		case "/timestamp":
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"timestamp": time.Now().UnixNano(),
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+}
+
+func TestCaching_HitAndMiss(t *testing.T) {
+	server := setupCacheTestServer()
+	defer server.Close()
+
+	cache := NewMemoryCache(nil)
+	defer cache.Close()
+
+	client := NewClientWithCache(server.URL, &CacheConfig{
+		Cache:      cache,
+		DefaultTTL: 5 * time.Minute,
+	})
+
+	// First request - cache miss
+	resp1, err := client.Request(&RequestOptions{
+		Method: "GET",
+		URL:    "/cacheable",
+		Cache:  CacheEnabled(5 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("First request failed: %v", err)
+	}
+
+	var result1 map[string]interface{}
+	json.Unmarshal(resp1.Body, &result1)
+	firstCount := int(result1["requestCount"].(float64))
+
+	// Second request - cache hit
+	resp2, err := client.Request(&RequestOptions{
+		Method: "GET",
+		URL:    "/cacheable",
+		Cache:  CacheEnabled(5 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("Second request failed: %v", err)
+	}
+
+	var result2 map[string]interface{}
+	json.Unmarshal(resp2.Body, &result2)
+	secondCount := int(result2["requestCount"].(float64))
+
+	// Both responses should have the same requestCount (cached)
+	if firstCount != secondCount {
+		t.Errorf("Expected cached response, but request counts differ: %d vs %d", firstCount, secondCount)
+	}
+
+	stats := client.CacheStats()
+	if stats.Hits != 1 {
+		t.Errorf("Expected 1 cache hit, got %d", stats.Hits)
+	}
+	if stats.Misses != 1 {
+		t.Errorf("Expected 1 cache miss, got %d", stats.Misses)
+	}
+}
+
+func TestCaching_Expiration(t *testing.T) {
+	server := setupCacheTestServer()
+	defer server.Close()
+
+	cache := NewMemoryCache(&MemoryCacheOptions{
+		CleanupInterval: 50 * time.Millisecond,
+	})
+	defer cache.Close()
+
+	client := NewClientWithCache(server.URL, &CacheConfig{
+		Cache:      cache,
+		DefaultTTL: 100 * time.Millisecond,
+	})
+
+	// First request
+	resp1, err := client.Request(&RequestOptions{
+		Method: "GET",
+		URL:    "/timestamp",
+		Cache:  CacheEnabled(100 * time.Millisecond),
+	})
+	if err != nil {
+		t.Fatalf("First request failed: %v", err)
+	}
+
+	var result1 map[string]interface{}
+	json.Unmarshal(resp1.Body, &result1)
+	firstTimestamp := int64(result1["timestamp"].(float64))
+
+	// Wait for cache to expire
+	time.Sleep(150 * time.Millisecond)
+
+	// Second request - should be a fresh request
+	resp2, err := client.Request(&RequestOptions{
+		Method: "GET",
+		URL:    "/timestamp",
+		Cache:  CacheEnabled(100 * time.Millisecond),
+	})
+	if err != nil {
+		t.Fatalf("Second request failed: %v", err)
+	}
+
+	var result2 map[string]interface{}
+	json.Unmarshal(resp2.Body, &result2)
+	secondTimestamp := int64(result2["timestamp"].(float64))
+
+	// Timestamps should be different (not cached)
+	if firstTimestamp == secondTimestamp {
+		t.Error("Expected different timestamps after cache expiration")
+	}
+}
+
+func TestCaching_DisabledByDefault(t *testing.T) {
+	server := setupCacheTestServer()
+	defer server.Close()
+
+	cache := NewMemoryCache(nil)
+	defer cache.Close()
+
+	client := NewClientWithCache(server.URL, &CacheConfig{
+		Cache:      cache,
+		DefaultTTL: 5 * time.Minute,
+	})
+
+	// First request without cache option - should NOT cache
+	_, err := client.Request(&RequestOptions{
+		Method: "GET",
+		URL:    "/cacheable",
+	})
+	if err != nil {
+		t.Fatalf("First request failed: %v", err)
+	}
+
+	// Second request without cache option
+	_, err = client.Request(&RequestOptions{
+		Method: "GET",
+		URL:    "/cacheable",
+	})
+	if err != nil {
+		t.Fatalf("Second request failed: %v", err)
+	}
+
+	stats := client.CacheStats()
+	if stats.Hits != 0 || stats.Misses != 0 {
+		t.Errorf("Expected no cache activity when not explicitly enabled, got hits=%d, misses=%d", stats.Hits, stats.Misses)
+	}
+}
+
+func TestCaching_ForceRefresh(t *testing.T) {
+	server := setupCacheTestServer()
+	defer server.Close()
+
+	cache := NewMemoryCache(nil)
+	defer cache.Close()
+
+	client := NewClientWithCache(server.URL, &CacheConfig{
+		Cache:      cache,
+		DefaultTTL: 5 * time.Minute,
+	})
+
+	// First request
+	resp1, err := client.Request(&RequestOptions{
+		Method: "GET",
+		URL:    "/cacheable",
+		Cache:  CacheEnabled(5 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("First request failed: %v", err)
+	}
+
+	var result1 map[string]interface{}
+	json.Unmarshal(resp1.Body, &result1)
+	firstCount := int(result1["requestCount"].(float64))
+
+	// Second request with ForceRefresh
+	resp2, err := client.Request(&RequestOptions{
+		Method: "GET",
+		URL:    "/cacheable",
+		Cache: &RequestCacheOptions{
+			Enabled:      Bool(true),
+			TTL:          5 * time.Minute,
+			ForceRefresh: true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Second request failed: %v", err)
+	}
+
+	var result2 map[string]interface{}
+	json.Unmarshal(resp2.Body, &result2)
+	secondCount := int(result2["requestCount"].(float64))
+
+	// Should have made a new request
+	if secondCount <= firstCount {
+		t.Errorf("Expected new request with ForceRefresh, got same or lower count: %d vs %d", firstCount, secondCount)
+	}
+}
+
+func TestCaching_OnlyGETMethod(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]string{"method": r.Method})
+	}))
+	defer server.Close()
+
+	cache := NewMemoryCache(nil)
+	defer cache.Close()
+
+	client := NewClientWithCache(server.URL, &CacheConfig{
+		Cache:      cache,
+		DefaultTTL: 5 * time.Minute,
+	})
+
+	// POST request with cache enabled - should NOT cache
+	_, err := client.Request(&RequestOptions{
+		Method: "POST",
+		URL:    "/test",
+		Body:   map[string]string{"test": "data"},
+		Cache:  CacheEnabled(5 * time.Minute),
+	})
+	if err != nil {
+		t.Fatalf("POST request failed: %v", err)
+	}
+
+	stats := client.CacheStats()
+	if stats.Size != 0 {
+		t.Errorf("Expected no cached entries for POST request, got %d", stats.Size)
+	}
+}
+
+func TestCaching_CustomCacheKey(t *testing.T) {
+	server := setupCacheTestServer()
+	defer server.Close()
+
+	cache := NewMemoryCache(nil)
+	defer cache.Close()
+
+	client := NewClientWithCache(server.URL, &CacheConfig{
+		Cache:      cache,
+		DefaultTTL: 5 * time.Minute,
+	})
+
+	// Request with custom key
+	_, err := client.Request(&RequestOptions{
+		Method: "GET",
+		URL:    "/cacheable",
+		Cache: &RequestCacheOptions{
+			Enabled:   Bool(true),
+			TTL:       5 * time.Minute,
+			CustomKey: "my-custom-key",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+
+	// Verify cache has entry with custom key
+	entry := cache.Get("my-custom-key")
+	if entry == nil {
+		t.Error("Expected cache entry with custom key")
+	}
+}
+
+func TestCaching_ClearCache(t *testing.T) {
+	server := setupCacheTestServer()
+	defer server.Close()
+
+	cache := NewMemoryCache(nil)
+	defer cache.Close()
+
+	client := NewClientWithCache(server.URL, &CacheConfig{
+		Cache:      cache,
+		DefaultTTL: 5 * time.Minute,
+	})
+
+	// Add some entries
+	client.Request(&RequestOptions{
+		Method: "GET",
+		URL:    "/cacheable",
+		Cache:  CacheEnabled(5 * time.Minute),
+	})
+
+	stats := client.CacheStats()
+	if stats.Size != 1 {
+		t.Errorf("Expected 1 cached entry, got %d", stats.Size)
+	}
+
+	// Clear cache
+	client.ClearCache()
+
+	stats = client.CacheStats()
+	if stats.Size != 0 {
+		t.Errorf("Expected 0 cached entries after clear, got %d", stats.Size)
+	}
+}
+
+func TestCaching_PerRequestTTL(t *testing.T) {
+	server := setupCacheTestServer()
+	defer server.Close()
+
+	cache := NewMemoryCache(&MemoryCacheOptions{
+		CleanupInterval: 50 * time.Millisecond,
+	})
+	defer cache.Close()
+
+	client := NewClientWithCache(server.URL, &CacheConfig{
+		Cache:      cache,
+		DefaultTTL: 5 * time.Minute,
+	})
+
+	// Request with short TTL
+	_, err := client.Request(&RequestOptions{
+		Method: "GET",
+		URL:    "/timestamp",
+		Cache:  CacheEnabled(50 * time.Millisecond),
+	})
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+
+	// Should be cached
+	entry := cache.Get("GET:" + server.URL + "/timestamp")
+	if entry == nil {
+		t.Fatal("Expected cache entry to exist")
+	}
+
+	// Wait for per-request TTL to expire
+	time.Sleep(100 * time.Millisecond)
+
+	// Should be expired
+	entry = cache.Get("GET:" + server.URL + "/timestamp")
+	if entry != nil {
+		t.Error("Expected cache entry to be expired")
+	}
+}
