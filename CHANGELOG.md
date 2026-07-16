@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.7](https://github.com/rezmoss/axios4go/compare/v0.6.4...v0.6.7) (2026-01-09)
+
+
+### Features
+
+* add opt-in response caching with a pluggable cache interface and in-memory implementation ([20eefee](https://github.com/rezmoss/axios4go/commit/20eefee2c7df94f6d57e51a1c97d4a8705931181))
+
+## [0.6.4](https://github.com/rezmoss/axios4go/compare/v0.6.3...v0.6.4) (2026-01-03)
+
+
+### Bug Fixes
+
+* avoid mutating a shared HTTP client while configuring requests ([b651604](https://github.com/rezmoss/axios4go/commit/b651604c64e66a115ab90cdab358b0181d74a842))
+
 ## [0.6.3](https://github.com/rezmoss/axios4go/compare/v0.6.2...v0.6.3) (2025-10-06)
 
 

@@ -2,7 +2,9 @@ package axios4go
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +14,12 @@ import (
 	"testing"
 	"time"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return fn(req)
+}
 
 func setupTestServer() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -636,10 +644,7 @@ func TestValidateStatus(t *testing.T) {
 	defer server.Close()
 	reqOptions := &RequestOptions{
 		ValidateStatus: func(StatusCode int) bool {
-			if StatusCode == 200 {
-				return false
-			}
-			return true
+			return StatusCode != 200
 		},
 	}
 
@@ -755,6 +760,9 @@ func TestInterceptors(t *testing.T) {
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	request, err := http.NewRequest(r.Method, r.RequestURI, nil)
+	if err != nil {
+		return
+	}
 	client := http.Client{}
 	response, err := client.Do(request)
 	if err != nil {
@@ -763,6 +771,97 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	bytes := make([]byte, response.ContentLength)
 	response.Body.Read(bytes)
 	w.Write(bytes)
+}
+
+func TestRequestAsyncDoesNotBlockAndSettles(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(100 * time.Millisecond)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	start := time.Now()
+	promise := RequestAsync(http.MethodGet, server.URL)
+	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
+		t.Fatalf("RequestAsync blocked for %v", elapsed)
+	}
+
+	finallyCalled := false
+	promise.Finally(func() { finallyCalled = true })
+	if !finallyCalled {
+		t.Fatal("expected Finally callback to run")
+	}
+}
+
+func TestClientUsesConfiguredHTTPClient(t *testing.T) {
+	transportCalled := false
+	client := &Client{
+		HTTPClient: &http.Client{
+			Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				transportCalled = true
+				return &http.Response{
+					StatusCode: http.StatusAccepted,
+					Status:     "202 Accepted",
+					Header:     make(http.Header),
+					Body:       io.NopCloser(strings.NewReader("configured transport")),
+					Request:    req,
+				}, nil
+			}),
+		},
+		Logger: NewLogger(LevelNone),
+	}
+
+	resp, err := client.Request(&RequestOptions{
+		Method:           http.MethodGet,
+		URL:              "https://example.invalid",
+		Decompress:       true,
+		MaxContentLength: 1024,
+		MaxBodyLength:    1024,
+		MaxRedirects:     2,
+		ResponseType:     "json",
+		ResponseEncoding: "utf8",
+	})
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if !transportCalled {
+		t.Fatal("configured HTTP transport was not used")
+	}
+	if resp.StatusCode != http.StatusAccepted || string(resp.Body) != "configured transport" {
+		t.Fatalf("unexpected response: %#v", resp)
+	}
+}
+
+func TestDecompressOption(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		writer := gzip.NewWriter(w)
+		_, _ = writer.Write([]byte("compressed response"))
+		_ = writer.Close()
+	}))
+	defer server.Close()
+
+	resp, err := Get(server.URL, &RequestOptions{
+		DisableDecompression: true,
+		MaxContentLength:     1024,
+	})
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	if string(resp.Body) == "compressed response" {
+		t.Fatal("response was decompressed when Decompress was false")
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(resp.Body))
+	if err != nil {
+		t.Fatalf("response was not valid gzip data: %v", err)
+	}
+	decompressed, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatalf("could not decompress response: %v", err)
+	}
+	if string(decompressed) != "compressed response" {
+		t.Fatalf("unexpected decompressed response: %q", decompressed)
+	}
 }
 
 func TestGetByProxy(t *testing.T) {
@@ -908,6 +1007,15 @@ func TestProgressCallbacks(t *testing.T) {
 func TestLogging(t *testing.T) {
 	server := setupTestServer()
 	defer server.Close()
+
+	t.Run("LevelNone disables logging", func(t *testing.T) {
+		var buf bytes.Buffer
+		logger := NewDefaultLogger(LogOptions{Level: LevelNone, Output: &buf})
+		logger.LogError(errors.New("not logged"), LevelError)
+		if buf.Len() != 0 {
+			t.Fatalf("LevelNone produced log output: %q", buf.String())
+		}
+	})
 
 	t.Run("Test Logger Integration", func(t *testing.T) {
 		var buf bytes.Buffer

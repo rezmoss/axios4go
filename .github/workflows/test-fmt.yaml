@@ -1,56 +1,65 @@
-name: Go Package CI
+name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
+  schedule:
+    - cron: "17 9 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
+    name: Test (Go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ["1.22.5", stable]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: ${{ matrix.go-version }}
+          check-latest: true
+      - run: go mod download
+      - run: go test ./...
+      - if: matrix.go-version == 'stable'
+        run: go test -race ./...
+
+  quality:
+    name: Format, vet, and lint
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: stable
+          check-latest: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Check module metadata
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - run: go vet ./...
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.11.3
 
-    - name: Set up Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: '1.22'
-
-    - name: Install dependencies
-      run: make deps
-
-    - name: Run all checks and tests
-      run: |
-        go vet ./...
-        make test-all
-        make check-examples
-
-  format:
-    needs: test
+  vulnerability-scan:
+    name: Vulnerability scan
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
     steps:
-    - uses: actions/checkout@v3
-
-    - name: Set up Go
-      uses: actions/setup-go@v3
-      with:
-        go-version: '1.22'
-
-    - name: Format code
-      run: make fmt
-
-    - name: Check for changes
-      id: git-check
-      run: |
-        git diff --exit-code || echo "changes=true" >> $GITHUB_OUTPUT
-
-    - name: Create Pull Request
-      if: steps.git-check.outputs.changes == 'true'
-      uses: peter-evans/create-pull-request@v5
-      with:
-        commit-message: Apply formatting changes
-        title: 'Auto-format Go code'
-        body: 'This PR applies automatic formatting to Go code.'
-        branch: auto-format-${{ github.head_ref }}
+      - uses: golang/govulncheck-action@v1
+        with:
+          go-version-input: stable
+          go-package: ./...

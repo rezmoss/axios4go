@@ -2,6 +2,7 @@ package axios4go
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -32,6 +33,33 @@ func TestMemoryCache_GetSet(t *testing.T) {
 
 	if retrieved.StatusCode != entry.StatusCode {
 		t.Errorf("Expected status code %d, got %d", entry.StatusCode, retrieved.StatusCode)
+	}
+}
+
+func TestMemoryCache_CopiesEntries(t *testing.T) {
+	cache := NewMemoryCache(nil)
+	defer cache.Close()
+
+	original := &CacheEntry{
+		Body:       []byte("original"),
+		StatusCode: http.StatusOK,
+		Headers:    http.Header{"X-Test": []string{"original"}},
+		CreatedAt:  time.Now(),
+	}
+	cache.Set("key", original, time.Minute)
+
+	original.Body[0] = 'X'
+	original.Headers.Set("X-Test", "changed")
+	retrieved := cache.Get("key")
+	if string(retrieved.Body) != "original" || retrieved.Headers.Get("X-Test") != "original" {
+		t.Fatalf("cache retained caller-owned data: %#v", retrieved)
+	}
+
+	retrieved.Body[0] = 'Y'
+	retrieved.Headers.Set("X-Test", "changed again")
+	retrievedAgain := cache.Get("key")
+	if string(retrievedAgain.Body) != "original" || retrievedAgain.Headers.Get("X-Test") != "original" {
+		t.Fatalf("cache returned mutable internal data: %#v", retrievedAgain)
 	}
 }
 
@@ -323,6 +351,22 @@ func TestDefaultCacheKeyFunc(t *testing.T) {
 
 	if key != expected {
 		t.Errorf("Expected key %s, got %s", expected, key)
+	}
+}
+
+func TestDefaultCacheKeyFuncVariesByCredentials(t *testing.T) {
+	first := DefaultCacheKeyFunc("GET", "https://api.example.com/users", map[string]string{
+		"Authorization": "Bearer first-secret",
+	})
+	second := DefaultCacheKeyFunc("GET", "https://api.example.com/users", map[string]string{
+		"authorization": "Bearer second-secret",
+	})
+
+	if first == second {
+		t.Fatal("cache keys must vary by authorization credentials")
+	}
+	if strings.Contains(first, "first-secret") || strings.Contains(second, "second-secret") {
+		t.Fatal("cache keys must not expose credentials")
 	}
 }
 

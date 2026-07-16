@@ -34,6 +34,7 @@ type Promise struct {
 	catch    func(error)
 	finally  func()
 	done     chan struct{}
+	settled  bool
 	mu       sync.Mutex
 }
 
@@ -45,27 +46,28 @@ type InterceptorOptions struct {
 }
 
 type RequestOptions struct {
-	Method             string
-	URL                string
-	BaseURL            string
-	Params             map[string]string
-	Body               interface{}
-	Headers            map[string]string
-	Timeout            int
-	Auth               *Auth
-	ResponseType       string
-	ResponseEncoding   string
-	MaxRedirects       int
-	MaxContentLength   int64
-	MaxBodyLength      int64
-	Decompress         bool
-	ValidateStatus     func(int) bool
-	InterceptorOptions InterceptorOptions
-	Proxy              *Proxy
-	OnUploadProgress   func(bytesRead, totalBytes int64)
-	OnDownloadProgress func(bytesRead, totalBytes int64)
-	LogLevel           LogLevel
-	Cache              *RequestCacheOptions
+	Method               string
+	URL                  string
+	BaseURL              string
+	Params               map[string]string
+	Body                 interface{}
+	Headers              map[string]string
+	Timeout              int
+	Auth                 *Auth
+	ResponseType         string
+	ResponseEncoding     string
+	MaxRedirects         int
+	MaxContentLength     int64
+	MaxBodyLength        int64
+	Decompress           bool
+	DisableDecompression bool
+	ValidateStatus       func(int) bool
+	InterceptorOptions   InterceptorOptions
+	Proxy                *Proxy
+	OnUploadProgress     func(bytesRead, totalBytes int64)
+	OnDownloadProgress   func(bytesRead, totalBytes int64)
+	LogLevel             LogLevel
+	Cache                *RequestCacheOptions
 }
 
 type Proxy struct {
@@ -120,32 +122,37 @@ func (r *Response) JSON(v interface{}) error {
 
 func (p *Promise) Then(fn func(*Response)) *Promise {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.response != nil && p.err == nil {
-		fn(p.response)
+	if p.settled && p.err == nil {
+		response := p.response
+		p.mu.Unlock()
+		fn(response)
 	} else {
-		p.then = fn
+		if !p.settled {
+			p.then = fn
+		}
+		p.mu.Unlock()
 	}
 	return p
 }
 
 func (p *Promise) Catch(fn func(error)) *Promise {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.err != nil {
-		fn(p.err)
+	if p.settled && p.err != nil {
+		err := p.err
+		p.mu.Unlock()
+		fn(err)
 	} else {
-		p.catch = fn
+		if !p.settled {
+			p.catch = fn
+		}
+		p.mu.Unlock()
 	}
 	return p
 }
 
 func (p *Promise) Finally(fn func()) {
 	p.mu.Lock()
-
-	if p.response != nil || p.err != nil {
+	if p.settled {
 		p.mu.Unlock()
 		fn()
 	} else {
@@ -164,21 +171,28 @@ func NewPromise() *Promise {
 
 func (p *Promise) resolve(resp *Response, err error) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	if p.settled {
+		p.mu.Unlock()
+		return
+	}
 
 	p.response = resp
 	p.err = err
+	p.settled = true
+	thenFn := p.then
+	catchFn := p.catch
+	finallyFn := p.finally
+	p.mu.Unlock()
 
-	if p.then != nil && err == nil {
-		p.then(resp)
+	if thenFn != nil && err == nil {
+		thenFn(resp)
 	}
-	if p.catch != nil && err != nil {
-		p.catch(err)
+	if catchFn != nil && err != nil {
+		catchFn(err)
 	}
-	if p.finally != nil {
-		p.finally()
+	if finallyFn != nil {
+		finallyFn()
 	}
-
 	close(p.done)
 }
 
@@ -326,11 +340,18 @@ func Request(method, urlStr string, options ...*RequestOptions) (*Response, erro
 }
 
 func RequestAsync(method, urlStr string, options ...*RequestOptions) *Promise {
-	resp, err := Request(method, urlStr, options...)
-	return &Promise{response: resp, err: err}
+	promise := NewPromise()
+	go func() {
+		resp, err := Request(method, urlStr, options...)
+		promise.resolve(resp, err)
+	}()
+	return promise
 }
 
 func (c *Client) Request(options *RequestOptions) (*Response, error) {
+	if options == nil {
+		return nil, errors.New("request options must not be nil")
+	}
 	if options.Timeout == 0 {
 		options.Timeout = 1000
 	}
@@ -352,10 +373,13 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 	if options.Method == "" {
 		options.Method = "GET"
 	}
-	if !options.Decompress {
+	if options.DisableDecompression {
+		options.Decompress = false
+	} else if !options.Decompress {
+		// Decompression historically defaulted to true. The separate disable
+		// option makes that default explicit without changing existing callers.
 		options.Decompress = true
 	}
-
 	validMethods := map[string]bool{
 		"GET":     true,
 		"POST":    true,
@@ -480,19 +504,31 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		basicAuth := base64.StdEncoding.EncodeToString([]byte(auth))
 		req.Header.Set("Authorization", "Basic "+basicAuth)
 	}
+	if !options.Decompress && req.Header.Get("Accept-Encoding") == "" {
+		// Setting an explicit encoding prevents net/http from transparently
+		// requesting and decompressing gzip responses.
+		req.Header.Set("Accept-Encoding", "identity")
+	}
 
 	if c.Logger != nil {
 		c.Logger.LogRequest(req, options.LogLevel)
 	}
 
-	httpClient := &http.Client{
-		Timeout: time.Duration(options.Timeout) * time.Millisecond,
+	baseHTTPClient := c.HTTPClient
+	if baseHTTPClient == nil {
+		baseHTTPClient = http.DefaultClient
 	}
+	httpClient := *baseHTTPClient
+	httpClient.Timeout = time.Duration(options.Timeout) * time.Millisecond
 
 	if options.MaxRedirects > 0 {
-		httpClient.CheckRedirect = func(_ *http.Request, via []*http.Request) error {
+		originalCheckRedirect := httpClient.CheckRedirect
+		httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			if len(via) >= options.MaxRedirects {
 				return fmt.Errorf("too many redirects (max: %d)", options.MaxRedirects)
+			}
+			if originalCheckRedirect != nil {
+				return originalCheckRedirect(req, via)
 			}
 			return nil
 		}
@@ -504,9 +540,16 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		if err != nil {
 			return nil, err
 		}
-		transport := &http.Transport{
-			Proxy: http.ProxyURL(proxyURL),
+		baseTransport := http.DefaultTransport
+		if httpClient.Transport != nil {
+			baseTransport = httpClient.Transport
 		}
+		transport, ok := baseTransport.(*http.Transport)
+		if !ok {
+			return nil, errors.New("proxy options require an *http.Transport")
+		}
+		transport = transport.Clone()
+		transport.Proxy = http.ProxyURL(proxyURL)
 		if options.Proxy.Auth != nil {
 			auth := options.Proxy.Auth.Username + ":" + options.Proxy.Auth.Password
 			basicAuth := base64.StdEncoding.EncodeToString([]byte(auth))
@@ -662,7 +705,10 @@ func mergeOptions(dst, src *RequestOptions) {
 	if src.Cache != nil {
 		dst.Cache = src.Cache
 	}
-	dst.Decompress = src.Decompress
+	if src.Decompress {
+		dst.Decompress = true
+	}
+	dst.DisableDecompression = src.DisableDecompression
 }
 
 func SetBaseURL(baseURL string) {

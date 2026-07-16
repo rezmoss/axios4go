@@ -58,7 +58,7 @@ func (l *DefaultLogger) SetLevel(level LogLevel) {
 }
 
 func (l *DefaultLogger) LogRequest(req *http.Request, level LogLevel) {
-	if level > l.options.Level {
+	if l.options.Level == LevelNone || level == LevelNone || level > l.options.Level {
 		return
 	}
 
@@ -90,11 +90,11 @@ func (l *DefaultLogger) LogRequest(req *http.Request, level LogLevel) {
 		}
 	}
 
-	fmt.Fprintln(l.options.Output, buf.String())
+	_, _ = fmt.Fprintln(l.options.Output, buf.String())
 }
 
 func (l *DefaultLogger) LogResponse(resp *http.Response, body []byte, duration time.Duration, level LogLevel) {
-	if level > l.options.Level {
+	if l.options.Level == LevelNone || level == LevelNone || level > l.options.Level {
 		return
 	}
 
@@ -123,16 +123,16 @@ func (l *DefaultLogger) LogResponse(resp *http.Response, body []byte, duration t
 		}
 	}
 
-	fmt.Fprintln(l.options.Output, buf.String())
+	_, _ = fmt.Fprintln(l.options.Output, buf.String())
 }
 
 func (l *DefaultLogger) LogError(err error, level LogLevel) {
-	if level > l.options.Level {
+	if l.options.Level == LevelNone || level == LevelNone || level > l.options.Level {
 		return
 	}
 
 	timestamp := time.Now().Format(l.options.TimeFormat)
-	fmt.Fprintf(l.options.Output, "[%s] ERROR: %v\n", timestamp, err)
+	_, _ = fmt.Fprintf(l.options.Output, "[%s] ERROR: %v\n", timestamp, err)
 }
 
 func (l *DefaultLogger) isHeaderMasked(header string) bool {
