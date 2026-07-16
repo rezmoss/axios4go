@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.8](https://github.com/rezmoss/axios4go/compare/v0.6.7...v0.6.8) (2026-07-16)
+
+
+### Bug Fixes
+
+* harden HTTP client and maintenance automation ([078d8b4](https://github.com/rezmoss/axios4go/commit/078d8b4459fec1f16fcf709b395bb49436f1d7fe))
+
 ## [0.6.7](https://github.com/rezmoss/axios4go/compare/v0.6.4...v0.6.7) (2026-01-09)
 
 
