@@ -23,6 +23,7 @@ axios4go is a Go HTTP client library inspired by [Axios](https://github.com/axio
   - [Using Proxy](#using-proxy)
   - [Response Caching](#response-caching)
 - [Configuration Options](#configuration-options)
+- [Maintenance and Releases](#maintenance-and-releases)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -51,7 +52,7 @@ To install `axios4go`, use `go get`:
 go get -u github.com/rezmoss/axios4go
 ```
 
-**Note**: Requires Go 1.13 or later.
+**Note**: Requires Go 1.22.5 or later.
 
 ## Usage
 
@@ -248,13 +249,15 @@ resp, err := client.Request(&axios4go.RequestOptions{
 
 #### Custom Cache Key
 
+The default cache key safely varies by `Authorization` and `Cookie` headers, using hashed values so credentials are not exposed in the key. A custom key function is responsible for including every header that changes the response.
+
 ```go
-// Use custom key function to include headers in cache key
+// Vary cached responses by tenant.
 client := axios4go.NewClientWithCache("https://api.example.com", &axios4go.CacheConfig{
     Cache:      cache,
     DefaultTTL: 5 * time.Minute,
     KeyFunc: func(method, fullURL string, headers map[string]string) string {
-        return method + ":" + fullURL + ":" + headers["Authorization"]
+        return method + ":" + fullURL + ":" + headers["X-Tenant-ID"]
     },
 })
 ```
@@ -295,12 +298,12 @@ type Cache interface {
 - **Headers**: Custom headers (`map[string]string`)
 - **Timeout**: Request timeout in milliseconds
 - **Auth**: Basic authentication credentials (`&Auth{Username: "user", Password: "pass"}`)
-- **ResponseType**: Expected response type (default is "json")
-- **ResponseEncoding**: Expected response encoding (default is "utf8")
+- **ResponseType** and **ResponseEncoding**: Reserved for API compatibility; response bodies are returned as bytes and can be decoded with `Response.JSON`
 - **MaxRedirects**: Maximum number of redirects to follow
 - **MaxContentLength**: Maximum allowed response content length
 - **MaxBodyLength**: Maximum allowed request body length
-- **Decompress**: Whether to decompress the response body (default is true)
+- **Decompress**: Enables automatic response decompression (default is true)
+- **DisableDecompression**: Explicitly disables automatic response decompression
 - **ValidateStatus**: Function to validate HTTP response status codes
 - **InterceptorOptions**: Request and response interceptors
 - **Proxy**: Proxy configuration
@@ -338,6 +341,17 @@ options := &axios4go.RequestOptions{
 
 resp, err := client.Request(options)
 ```
+
+## Maintenance and Releases
+
+- Dependabot checks Go modules and GitHub Actions monthly and opens grouped update pull requests when updates exist.
+- CI runs monthly as a health check and on every pull request, testing Go 1.22.5 and the current stable Go release.
+- Release Please maintains the changelog and a semantic-version release pull request from Conventional Commit messages.
+- Merging a Release Please pull request creates the version tag and GitHub release. Empty calendar-based releases are not created.
+
+Use commit prefixes such as `fix:`, `feat:`, and `feat!:` so patch, minor, and breaking changes are versioned correctly.
+
+For release pull requests to trigger other workflows, add a fine-grained personal access token as the `RELEASE_PLEASE_TOKEN` Actions secret. The workflow falls back to `GITHUB_TOKEN` when that secret is absent.
 
 ## Contributing
 

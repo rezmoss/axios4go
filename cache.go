@@ -1,7 +1,11 @@
 package axios4go
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -110,8 +114,23 @@ func CacheDisabled() *RequestCacheOptions {
 }
 
 // DefaultCacheKeyFunc generates a cache key from method and full URL
-func DefaultCacheKeyFunc(method, fullURL string, _ map[string]string) string {
-	return method + ":" + fullURL
+func DefaultCacheKeyFunc(method, fullURL string, headers map[string]string) string {
+	key := strings.ToUpper(method) + ":" + fullURL
+
+	// Authentication and cookie headers commonly change the representation for
+	// the same URL. Hash their values so credentials do not appear in cache keys.
+	var varyHeaders []string
+	for name, value := range headers {
+		if strings.EqualFold(name, "Authorization") || strings.EqualFold(name, "Cookie") {
+			sum := sha256.Sum256([]byte(value))
+			varyHeaders = append(varyHeaders, strings.ToLower(name)+"="+hex.EncodeToString(sum[:]))
+		}
+	}
+	sort.Strings(varyHeaders)
+	if len(varyHeaders) > 0 {
+		key += ":" + strings.Join(varyHeaders, ":")
+	}
+	return key
 }
 
 // MemoryCache is a thread-safe in-memory cache implementation
@@ -174,13 +193,7 @@ func (c *MemoryCache) Get(key string) *CacheEntry {
 	}
 
 	// Copy the entry while holding the lock to avoid race conditions
-	entryCopy := &CacheEntry{
-		Body:       entry.entry.Body,
-		StatusCode: entry.entry.StatusCode,
-		Headers:    entry.entry.Headers,
-		CreatedAt:  entry.entry.CreatedAt,
-		ExpiresAt:  entry.entry.ExpiresAt,
-	}
+	entryCopy := cloneCacheEntry(entry.entry)
 	c.mu.RUnlock()
 
 	if entryCopy.IsExpired() {
@@ -196,7 +209,7 @@ func (c *MemoryCache) Get(key string) *CacheEntry {
 
 // Set stores a response in the cache
 func (c *MemoryCache) Set(key string, entry *CacheEntry, ttl time.Duration) {
-	if ttl <= 0 {
+	if entry == nil || ttl <= 0 {
 		return
 	}
 
@@ -209,9 +222,23 @@ func (c *MemoryCache) Set(key string, entry *CacheEntry, ttl time.Duration) {
 		c.evictOne()
 	}
 
+	entry = cloneCacheEntry(entry)
 	entry.ExpiresAt = time.Now().Add(ttl)
 	c.entries[key] = &memoryCacheEntry{
 		entry: entry,
+	}
+}
+
+func cloneCacheEntry(entry *CacheEntry) *CacheEntry {
+	if entry == nil {
+		return nil
+	}
+	return &CacheEntry{
+		Body:       append([]byte(nil), entry.Body...),
+		StatusCode: entry.StatusCode,
+		Headers:    entry.Headers.Clone(),
+		CreatedAt:  entry.CreatedAt,
+		ExpiresAt:  entry.ExpiresAt,
 	}
 }
 
@@ -353,13 +380,26 @@ func generateCacheKey(cacheConfig *CacheConfig, options *RequestOptions, fullURL
 		return options.Cache.CustomKey
 	}
 
+	headers := make(map[string]string, len(options.Headers)+1)
+	for name, value := range options.Headers {
+		headers[name] = value
+	}
+	if options.Auth != nil {
+		auth := options.Auth.Username + ":" + options.Auth.Password
+		headers["Authorization"] = "Basic " + basicAuth(auth)
+	}
+
 	// Use custom key function if configured
 	if cacheConfig.KeyFunc != nil {
-		return cacheConfig.KeyFunc(options.Method, fullURL, options.Headers)
+		return cacheConfig.KeyFunc(options.Method, fullURL, headers)
 	}
 
 	// Use default key function
-	return DefaultCacheKeyFunc(options.Method, fullURL, options.Headers)
+	return DefaultCacheKeyFunc(options.Method, fullURL, headers)
+}
+
+func basicAuth(credentials string) string {
+	return base64.StdEncoding.EncodeToString([]byte(credentials))
 }
 
 // getCacheTTL determines the TTL for a cached response

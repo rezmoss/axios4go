@@ -1,50 +1,55 @@
+version: "2"
+
 run:
-  timeout: 5m
   modules-download-mode: readonly
+
+output:
+  formats:
+    text:
+      path: stdout
+
 linters:
-  disable-all: true
+  default: none
   enable:
     - errcheck
-    - gosimple
     - govet
     - ineffassign
     - revive
     - staticcheck
     - unused
+  settings:
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+          arguments:
+            - allowTypesBefore: "*testing.T"
+        - name: context-keys-type
+        - name: dot-imports
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: superfluous-else
+        - name: time-naming
+        - name: unexported-return
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: var-declaration
+        - name: var-naming
+  exclusions:
+    generated: lax
+    paths:
+      - .*_test.go
+      - vendor
+      - examples
 
-linters-settings:
-  revive:
-    rules:
-      - name: blank-imports
-      - name: context-as-argument
-        arguments:
-          - allowTypesBefore: "*testing.T"
-      - name: context-keys-type
-      - name: dot-imports
-      - name: empty-block
-      - name: error-naming
-      - name: error-return
-      - name: error-strings
-      - name: errorf
-      - name: increment-decrement
-      - name: indent-error-flow
-      - name: range
-      - name: receiver-naming
-      - name: redefines-builtin-id
-      - name: superfluous-else
-      - name: time-naming
-      - name: unexported-return
-      - name: unreachable-code
-      - name: unused-parameter
-      - name: var-declaration
-      - name: var-naming
-
-issues:
-  exclude-use-default: false
-  exclude-files:
-    - ".*_test.go"
-  exclude-dirs:
-    - vendor
-    - examples
-output:
-  formats: colored-line-number
+formatters:
+  exclusions:
+    generated: lax
