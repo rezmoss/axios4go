@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.9](https://github.com/rezmoss/axios4go/compare/v0.6.8...v0.6.9) (2026-09-06)
+
+
+### Bug Fixes
+
+* **ci:** bump golangci-lint to v2.13.2 for Go 1.27 compatibility ([7b03b75](https://github.com/rezmoss/axios4go/commit/7b03b75f33443f39448e2f105079fe5a56a9c985))
+
 ## [0.6.8](https://github.com/rezmoss/axios4go/compare/v0.6.7...v0.6.8) (2026-07-16)
 
 
