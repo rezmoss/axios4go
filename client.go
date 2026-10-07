@@ -2,13 +2,17 @@ package axios4go
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +23,12 @@ type Client struct {
 	HTTPClient  *http.Client
 	Logger      Logger
 	CacheConfig *CacheConfig
+
+	// mu guards BaseURL against concurrent SetBaseURL calls.
+	mu sync.RWMutex
+	// proxyTransports caches one *http.Transport per proxy configuration so
+	// proxied requests reuse connections instead of leaking a pool per call.
+	proxyTransports sync.Map
 }
 
 type Response struct {
@@ -120,12 +130,28 @@ func (r *Response) JSON(v interface{}) error {
 	return json.Unmarshal(r.Body, v)
 }
 
+// safeCall runs fn and converts a panic into an error.
+func safeCall(fn func()) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("promise callback panicked: %v", r)
+		}
+	}()
+	fn()
+	return nil
+}
+
 func (p *Promise) Then(fn func(*Response)) *Promise {
 	p.mu.Lock()
 	if p.settled && p.err == nil {
 		response := p.response
 		p.mu.Unlock()
-		fn(response)
+		if perr := safeCall(func() { fn(response) }); perr != nil {
+			p.mu.Lock()
+			p.err = perr
+			p.response = nil
+			p.mu.Unlock()
+		}
 	} else {
 		if !p.settled {
 			p.then = fn
@@ -184,8 +210,19 @@ func (p *Promise) resolve(resp *Response, err error) {
 	finallyFn := p.finally
 	p.mu.Unlock()
 
+	// Always release Finally waiters, even if a callback panics.
+	defer close(p.done)
+
 	if thenFn != nil && err == nil {
-		thenFn(resp)
+		if perr := safeCall(func() { thenFn(resp) }); perr != nil {
+			// A panicking Then callback rejects the promise, mirroring a
+			// throw inside a JavaScript then handler.
+			err = perr
+			p.mu.Lock()
+			p.err = perr
+			p.response = nil
+			p.mu.Unlock()
+		}
 	}
 	if catchFn != nil && err != nil {
 		catchFn(err)
@@ -193,7 +230,6 @@ func (p *Promise) resolve(resp *Response, err error) {
 	if finallyFn != nil {
 		finallyFn()
 	}
-	close(p.done)
 }
 
 func Get(urlStr string, options ...*RequestOptions) (*Response, error) {
@@ -348,9 +384,73 @@ func RequestAsync(method, urlStr string, options ...*RequestOptions) *Promise {
 	return promise
 }
 
-func (c *Client) Request(options *RequestOptions) (*Response, error) {
-	if options == nil {
-		return nil, errors.New("request options must not be nil")
+// safeRedirectHeaders are forwarded to redirect targets on another host or
+// over a downgraded scheme. Everything else is treated as potentially
+// sensitive and dropped, since net/http only strips a handful of well-known
+// credential headers on its own.
+var safeRedirectHeaders = map[string]bool{
+	"Accept":          true,
+	"Accept-Language": true,
+	"Accept-Encoding": true,
+	"Content-Type":    true,
+	"Content-Length":  true,
+	"User-Agent":      true,
+	"Cache-Control":   true,
+	"Referer":         true,
+}
+
+var validMethods = map[string]bool{
+	"GET":     true,
+	"POST":    true,
+	"PUT":     true,
+	"DELETE":  true,
+	"PATCH":   true,
+	"HEAD":    true,
+	"OPTIONS": true,
+}
+
+var validProxyProtocols = map[string]bool{
+	"http":    true,
+	"https":   true,
+	"socks5":  true,
+	"socks5h": true,
+}
+
+func (c *Client) baseURL() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.BaseURL
+}
+
+// cloneRequestOptions returns a copy of options whose maps are not shared with
+// the caller, so Request never mutates caller-owned state.
+func cloneRequestOptions(options *RequestOptions) *RequestOptions {
+	opts := *options
+	if options.Headers != nil {
+		opts.Headers = make(map[string]string, len(options.Headers))
+		for k, v := range options.Headers {
+			opts.Headers[k] = v
+		}
+	}
+	if options.Params != nil {
+		opts.Params = make(map[string]string, len(options.Params))
+		for k, v := range options.Params {
+			opts.Params[k] = v
+		}
+	}
+	return &opts
+}
+
+func applyDefaults(options *RequestOptions) error {
+	switch {
+	case options.Timeout < 0:
+		return fmt.Errorf("invalid Timeout %d: must not be negative", options.Timeout)
+	case options.MaxContentLength < 0:
+		return fmt.Errorf("invalid MaxContentLength %d: must not be negative", options.MaxContentLength)
+	case options.MaxBodyLength < 0:
+		return fmt.Errorf("invalid MaxBodyLength %d: must not be negative", options.MaxBodyLength)
+	case options.MaxRedirects < 0:
+		return fmt.Errorf("invalid MaxRedirects %d: must not be negative", options.MaxRedirects)
 	}
 	if options.Timeout == 0 {
 		options.Timeout = 1000
@@ -380,42 +480,77 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		// option makes that default explicit without changing existing callers.
 		options.Decompress = true
 	}
-	validMethods := map[string]bool{
-		"GET":     true,
-		"POST":    true,
-		"PUT":     true,
-		"DELETE":  true,
-		"PATCH":   true,
-		"HEAD":    true,
-		"OPTIONS": true,
-	}
 	upperMethod := strings.ToUpper(options.Method)
 	if !validMethods[upperMethod] {
-		return nil, fmt.Errorf("invalid HTTP method: %q", options.Method)
+		return fmt.Errorf("invalid HTTP method: %q", options.Method)
 	}
+	options.Method = upperMethod
+	return nil
+}
 
-	startTime := time.Now()
-	var fullURL string
-	if c.BaseURL != "" {
-		var err error
-		fullURL, err = url.JoinPath(c.BaseURL, options.URL)
-		if err != nil {
-			return nil, err
-		}
-	} else if options.BaseURL != "" {
-		var err error
-		fullURL, err = url.JoinPath(options.BaseURL, options.URL)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		fullURL = options.URL
+// hasDotDotSegment reports whether a relative URL contains a ".." path
+// segment, in raw or percent-encoded form.
+func hasDotDotSegment(rel string) bool {
+	if i := strings.IndexAny(rel, "?#"); i >= 0 {
+		rel = rel[:i]
 	}
+	for _, seg := range strings.Split(rel, "/") {
+		if seg == ".." {
+			return true
+		}
+		if unescaped, err := url.PathUnescape(seg); err == nil && unescaped == ".." {
+			return true
+		}
+	}
+	return false
+}
 
+// joinBaseURL joins rel onto base and guarantees the result stays under the
+// base path, so caller-supplied relative URLs cannot reach sibling endpoints.
+func joinBaseURL(base, rel string) (string, error) {
+	if hasDotDotSegment(rel) {
+		return "", fmt.Errorf("url %q must not contain \"..\" path segments when a base URL is set", rel)
+	}
+	full, err := url.JoinPath(base, rel)
+	if err != nil {
+		return "", err
+	}
+	baseURL, err := url.Parse(base)
+	if err != nil {
+		return "", err
+	}
+	fullURL, err := url.Parse(full)
+	if err != nil {
+		return "", err
+	}
+	basePath := path.Clean("/" + baseURL.EscapedPath())
+	if basePath == "/" {
+		return full, nil
+	}
+	fullPath := fullURL.EscapedPath()
+	if fullPath != basePath && !strings.HasPrefix(fullPath, basePath+"/") {
+		return "", fmt.Errorf("url %q escapes the base URL path %q", rel, baseURL.Path)
+	}
+	return full, nil
+}
+
+func (c *Client) resolveURL(options *RequestOptions) (string, error) {
+	base := c.baseURL()
+	if base == "" {
+		base = options.BaseURL
+	}
+	fullURL := options.URL
+	if base != "" {
+		var err error
+		fullURL, err = joinBaseURL(base, options.URL)
+		if err != nil {
+			return "", err
+		}
+	}
 	if len(options.Params) > 0 {
 		parsedURL, err := url.Parse(fullURL)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		q := parsedURL.Query()
 		for k, v := range options.Params {
@@ -424,85 +559,182 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		parsedURL.RawQuery = q.Encode()
 		fullURL = parsedURL.String()
 	}
+	return fullURL, nil
+}
 
-	// Cache check: try to get cached response before making request
-	var cacheKey string
-	shouldCache := shouldCacheRequest(c.CacheConfig, options)
+// encodeBody serialises the request body and returns the bytes to send.
+func encodeBody(body interface{}) ([]byte, error) {
+	switch v := body.(type) {
+	case string:
+		return []byte(v), nil
+	case []byte:
+		return v, nil
+	default:
+		return json.Marshal(body)
+	}
+}
 
-	if shouldCache && !shouldForceRefresh(options) {
-		cacheKey = generateCacheKey(c.CacheConfig, options, fullURL)
-		if cachedEntry := c.CacheConfig.Cache.Get(cacheKey); cachedEntry != nil {
-			// Return cached response
-			return &Response{
-				StatusCode: cachedEntry.StatusCode,
-				Headers:    cachedEntry.Headers,
-				Body:       cachedEntry.Body,
-			}, nil
+func buildProxyURL(p *Proxy) (*url.URL, error) {
+	if !validProxyProtocols[strings.ToLower(p.Protocol)] {
+		return nil, fmt.Errorf("invalid proxy protocol %q", p.Protocol)
+	}
+	if p.Host == "" || strings.ContainsAny(p.Host, "/?#@ \t\r\n\\") {
+		return nil, fmt.Errorf("invalid proxy host %q", p.Host)
+	}
+	if p.Port < 1 || p.Port > 65535 {
+		return nil, fmt.Errorf("invalid proxy port %d", p.Port)
+	}
+	proxyURL := &url.URL{
+		Scheme: strings.ToLower(p.Protocol),
+		Host:   net.JoinHostPort(p.Host, fmt.Sprint(p.Port)),
+	}
+	if p.Auth != nil {
+		// Credentials in the proxy URL make net/http send Proxy-Authorization
+		// for both plain HTTP requests and CONNECT tunnels.
+		proxyURL.User = url.UserPassword(p.Auth.Username, p.Auth.Password)
+	}
+	return proxyURL, nil
+}
+
+// proxyTransport returns a cached transport for the given proxy, derived from
+// base, so connections are pooled across requests.
+func (c *Client) proxyTransport(base http.RoundTripper, p *Proxy) (http.RoundTripper, error) {
+	proxyURL, err := buildProxyURL(p)
+	if err != nil {
+		return nil, err
+	}
+	baseTransport, ok := base.(*http.Transport)
+	if !ok {
+		return nil, errors.New("proxy options require an *http.Transport")
+	}
+	key := fmt.Sprintf("%p|%s", baseTransport, proxyURL.String())
+	if cached, ok := c.proxyTransports.Load(key); ok {
+		return cached.(*http.Transport), nil
+	}
+	transport := baseTransport.Clone()
+	transport.Proxy = http.ProxyURL(proxyURL)
+	actual, loaded := c.proxyTransports.LoadOrStore(key, transport)
+	if loaded {
+		transport.CloseIdleConnections()
+	}
+	return actual.(*http.Transport), nil
+}
+
+func isDomainOrSubdomain(sub, parent string) bool {
+	if sub == parent {
+		return true
+	}
+	return strings.HasSuffix(sub, "."+parent)
+}
+
+// stripCredentialsOnRedirect removes every non-allowlisted header when a
+// redirect leaves the original host or downgrades from https to http.
+func stripCredentialsOnRedirect(req *http.Request, via []*http.Request) {
+	if len(via) == 0 {
+		return
+	}
+	initial := via[0].URL
+	crossHost := !isDomainOrSubdomain(strings.ToLower(req.URL.Hostname()), strings.ToLower(initial.Hostname()))
+	downgrade := strings.EqualFold(initial.Scheme, "https") && !strings.EqualFold(req.URL.Scheme, "https")
+	if !crossHost && !downgrade {
+		return
+	}
+	for name := range req.Header {
+		if !safeRedirectHeaders[http.CanonicalHeaderKey(name)] {
+			req.Header.Del(name)
 		}
 	}
+}
 
-	var bodyReader io.Reader
-	var bodyLength int64
+// flattenHeaders converts an http.Header into the map shape used by cache key
+// functions.
+func flattenHeaders(h http.Header) map[string]string {
+	out := make(map[string]string, len(h))
+	for name, values := range h {
+		out[name] = strings.Join(values, ", ")
+	}
+	return out
+}
 
-	if options.Body != nil {
-		switch v := options.Body.(type) {
-		case string:
-			bodyReader = strings.NewReader(v)
-			bodyLength = int64(len(v))
-		case []byte:
-			bodyReader = bytes.NewReader(v)
-			bodyLength = int64(len(v))
-		default:
-			jsonBody, err := json.Marshal(options.Body)
-			if err != nil {
-				return nil, err
+func responseFromCache(entry *CacheEntry, req *http.Request) *http.Response {
+	return &http.Response{
+		Status:        fmt.Sprintf("%d %s", entry.StatusCode, http.StatusText(entry.StatusCode)),
+		StatusCode:    entry.StatusCode,
+		Header:        entry.Headers.Clone(),
+		Body:          io.NopCloser(bytes.NewReader(entry.Body)),
+		ContentLength: int64(len(entry.Body)),
+		Request:       req,
+	}
+}
+
+func responseForbidsCaching(h http.Header) bool {
+	for _, value := range h.Values("Cache-Control") {
+		for _, directive := range strings.Split(value, ",") {
+			if strings.EqualFold(strings.TrimSpace(directive), "no-store") {
+				return true
 			}
-			bodyReader = bytes.NewBuffer(jsonBody)
-			bodyLength = int64(len(jsonBody))
 		}
-		if options.MaxBodyLength > 0 && bodyLength > int64(options.MaxBodyLength) {
+	}
+	return false
+}
+
+func (c *Client) Request(options *RequestOptions) (result *Response, err error) {
+	if options == nil {
+		return nil, errors.New("request options must not be nil")
+	}
+	// Work on a private copy so the caller's struct and maps are never mutated.
+	options = cloneRequestOptions(options)
+	if err := applyDefaults(options); err != nil {
+		return nil, err
+	}
+
+	startTime := time.Now()
+	fullURL, err := c.resolveURL(options)
+	if err != nil {
+		return nil, err
+	}
+
+	var bodyBytes []byte
+	var bodyReader io.Reader
+	if options.Body != nil {
+		bodyBytes, err = encodeBody(options.Body)
+		if err != nil {
+			return nil, err
+		}
+		if options.MaxBodyLength > 0 && int64(len(bodyBytes)) > options.MaxBodyLength {
 			return nil, errors.New("request body length exceeded maxBodyLength")
 		}
-
-		if options.Body != nil && options.OnUploadProgress != nil {
-			bodyReader = &ProgressReader{
-				reader:     bodyReader,
-				total:      bodyLength,
-				onProgress: options.OnUploadProgress,
-			}
-		}
+		bodyReader = bytes.NewReader(bodyBytes)
 	}
 
 	req, err := http.NewRequest(options.Method, fullURL, bodyReader)
 	if err != nil {
 		return nil, err
 	}
+	if bodyReader != nil && options.OnUploadProgress != nil {
+		// Wrap after NewRequest so ContentLength and GetBody stay populated.
+		req.Body = io.NopCloser(&ProgressReader{
+			reader:     bodyReader,
+			total:      int64(len(bodyBytes)),
+			onProgress: options.OnUploadProgress,
+		})
+	}
 
 	for _, interceptor := range options.InterceptorOptions.RequestInterceptors {
-		err = interceptor(req)
-		if err != nil {
+		if err := interceptor(req); err != nil {
 			return nil, fmt.Errorf("request interceptor failed: %w", err)
-		}
-	}
-
-	if options.Headers == nil {
-		options.Headers = make(map[string]string)
-	}
-
-	if options.Body != nil {
-		if _, exists := options.Headers["Content-Type"]; !exists {
-			options.Headers["Content-Type"] = "application/json"
 		}
 	}
 
 	for key, value := range options.Headers {
 		req.Header.Set(key, value)
 	}
-
+	if options.Body != nil && req.Header.Get("Content-Type") == "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	if options.Auth != nil {
 		auth := options.Auth.Username + ":" + options.Auth.Password
-		basicAuth := base64.StdEncoding.EncodeToString([]byte(auth))
-		req.Header.Set("Authorization", "Basic "+basicAuth)
+		req.Header.Set("Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
 	}
 	if !options.Decompress && req.Header.Get("Accept-Encoding") == "" {
 		// Setting an explicit encoding prevents net/http from transparently
@@ -514,6 +746,41 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		c.Logger.LogRequest(req, options.LogLevel)
 	}
 
+	// Cache lookup happens only once the outgoing headers are final, so the key
+	// reflects credentials added by interceptors or custom headers.
+	var cacheKey string
+	shouldCache := shouldCacheRequest(c.CacheConfig, options)
+	if shouldCache {
+		var bodyHash string
+		if len(bodyBytes) > 0 {
+			sum := sha256.Sum256(bodyBytes)
+			bodyHash = hex.EncodeToString(sum[:])
+		}
+		cacheKey = generateCacheKey(c.CacheConfig, options, fullURL, flattenHeaders(req.Header), bodyHash)
+	}
+
+	if shouldCache && !shouldForceRefresh(options) {
+		if entry := c.CacheConfig.Cache.Get(cacheKey); entry != nil {
+			cached := responseFromCache(entry, req)
+			if c.Logger != nil {
+				c.Logger.LogResponse(cached, entry.Body, time.Since(startTime), options.LogLevel)
+			}
+			if options.ValidateStatus != nil && !options.ValidateStatus(cached.StatusCode) {
+				return nil, fmt.Errorf("Request failed with status code: %v", cached.StatusCode)
+			}
+			for _, interceptor := range options.InterceptorOptions.ResponseInterceptors {
+				if err := interceptor(cached); err != nil {
+					return nil, fmt.Errorf("response interceptor failed: %w", err)
+				}
+			}
+			return &Response{
+				StatusCode: cached.StatusCode,
+				Headers:    cached.Header,
+				Body:       entry.Body,
+			}, nil
+		}
+	}
+
 	baseHTTPClient := c.HTTPClient
 	if baseHTTPClient == nil {
 		baseHTTPClient = http.DefaultClient
@@ -521,41 +788,27 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 	httpClient := *baseHTTPClient
 	httpClient.Timeout = time.Duration(options.Timeout) * time.Millisecond
 
-	if options.MaxRedirects > 0 {
-		originalCheckRedirect := httpClient.CheckRedirect
-		httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			if len(via) >= options.MaxRedirects {
-				return fmt.Errorf("too many redirects (max: %d)", options.MaxRedirects)
-			}
-			if originalCheckRedirect != nil {
-				return originalCheckRedirect(req, via)
-			}
-			return nil
+	originalCheckRedirect := httpClient.CheckRedirect
+	maxRedirects := options.MaxRedirects
+	httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= maxRedirects {
+			return fmt.Errorf("too many redirects (max: %d)", maxRedirects)
 		}
+		stripCredentialsOnRedirect(req, via)
+		if originalCheckRedirect != nil {
+			return originalCheckRedirect(req, via)
+		}
+		return nil
 	}
 
 	if options.Proxy != nil {
-		proxyStr := fmt.Sprintf("%s://%s:%d", options.Proxy.Protocol, options.Proxy.Host, options.Proxy.Port)
-		proxyURL, err := url.Parse(proxyStr)
+		baseTransport := httpClient.Transport
+		if baseTransport == nil {
+			baseTransport = http.DefaultTransport
+		}
+		transport, err := c.proxyTransport(baseTransport, options.Proxy)
 		if err != nil {
 			return nil, err
-		}
-		baseTransport := http.DefaultTransport
-		if httpClient.Transport != nil {
-			baseTransport = httpClient.Transport
-		}
-		transport, ok := baseTransport.(*http.Transport)
-		if !ok {
-			return nil, errors.New("proxy options require an *http.Transport")
-		}
-		transport = transport.Clone()
-		transport.Proxy = http.ProxyURL(proxyURL)
-		if options.Proxy.Auth != nil {
-			auth := options.Proxy.Auth.Username + ":" + options.Proxy.Auth.Password
-			basicAuth := base64.StdEncoding.EncodeToString([]byte(auth))
-			transport.ProxyConnectHeader = http.Header{
-				"Proxy-Authorization": {"Basic " + basicAuth},
-			}
 		}
 		httpClient.Transport = transport
 	}
@@ -573,7 +826,7 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 			if err != nil {
 				err = fmt.Errorf("%w; failed to close response body: %v", err, cerr)
 			} else {
-				err = fmt.Errorf("failed to close response body: %v", cerr)
+				err = fmt.Errorf("failed to close response body: %w", cerr)
 			}
 		}
 	}()
@@ -588,8 +841,7 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 			total:      resp.ContentLength,
 			onProgress: options.OnDownloadProgress,
 		}
-		_, err = io.Copy(progressWriter, limitedReader)
-		if err != nil {
+		if _, err := io.Copy(progressWriter, limitedReader); err != nil {
 			return nil, err
 		}
 		responseBody = buf.Bytes()
@@ -604,10 +856,8 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		return nil, errors.New("response content length exceeded maxContentLength")
 	}
 
-	duration := time.Since(startTime)
-
 	if c.Logger != nil {
-		c.Logger.LogResponse(resp, responseBody, duration, options.LogLevel)
+		c.Logger.LogResponse(resp, responseBody, time.Since(startTime), options.LogLevel)
 	}
 
 	if options.ValidateStatus != nil && !(options.ValidateStatus(resp.StatusCode)) {
@@ -615,23 +865,21 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 	}
 
 	for _, interceptor := range options.InterceptorOptions.ResponseInterceptors {
-		err = interceptor(resp)
-		if err != nil {
+		if err := interceptor(resp); err != nil {
 			return nil, fmt.Errorf("response interceptor failed: %w", err)
 		}
 	}
 
-	// Cache store: save successful response to cache
-	if shouldCache && resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		ttl := getCacheTTL(c.CacheConfig, options)
-		if ttl > 0 {
-			if cacheKey == "" {
-				cacheKey = generateCacheKey(c.CacheConfig, options, fullURL)
-			}
+	if shouldCache && resp.StatusCode >= 200 && resp.StatusCode < 300 && !responseForbidsCaching(resp.Header) {
+		if ttl := getCacheTTL(c.CacheConfig, options); ttl > 0 {
+			headers := resp.Header.Clone()
+			// Cookies are per-client state and must never be replayed to
+			// another caller from the cache.
+			headers.Del("Set-Cookie")
 			c.CacheConfig.Cache.Set(cacheKey, &CacheEntry{
 				Body:       responseBody,
 				StatusCode: resp.StatusCode,
-				Headers:    resp.Header.Clone(),
+				Headers:    headers,
 				CreatedAt:  time.Now(),
 			}, ttl)
 		}
@@ -641,7 +889,7 @@ func (c *Client) Request(options *RequestOptions) (*Response, error) {
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 		Body:       responseBody,
-	}, err
+	}, nil
 }
 
 func mergeOptions(dst, src *RequestOptions) {
@@ -655,13 +903,19 @@ func mergeOptions(dst, src *RequestOptions) {
 		dst.BaseURL = src.BaseURL
 	}
 	if src.Params != nil {
-		dst.Params = src.Params
+		dst.Params = make(map[string]string, len(src.Params))
+		for k, v := range src.Params {
+			dst.Params[k] = v
+		}
 	}
 	if src.Body != nil {
 		dst.Body = src.Body
 	}
 	if src.Headers != nil {
-		dst.Headers = src.Headers
+		dst.Headers = make(map[string]string, len(src.Headers))
+		for k, v := range src.Headers {
+			dst.Headers[k] = v
+		}
 	}
 	if src.Timeout != 0 {
 		dst.Timeout = src.Timeout
@@ -712,6 +966,8 @@ func mergeOptions(dst, src *RequestOptions) {
 }
 
 func SetBaseURL(baseURL string) {
+	defaultClient.mu.Lock()
+	defer defaultClient.mu.Unlock()
 	defaultClient.BaseURL = baseURL
 }
 

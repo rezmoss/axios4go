@@ -2,7 +2,6 @@ package axios4go
 
 import (
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"net/http"
 	"sort"
@@ -52,7 +51,10 @@ type CacheStats struct {
 	Size   int64
 }
 
-// CacheKeyFunc is a function type for generating cache keys
+// CacheKeyFunc is a function type for generating cache keys. headers holds the
+// final outgoing request headers, including any added by request interceptors
+// and the Authorization header derived from RequestOptions.Auth. When the
+// request has a body, a hash of the body is appended to the returned key.
 type CacheKeyFunc func(method, fullURL string, headers map[string]string) string
 
 // CacheConfig holds the global cache configuration for a Client
@@ -65,7 +67,7 @@ type CacheConfig struct {
 	DefaultTTL time.Duration
 
 	// KeyFunc is a custom function to generate cache keys
-	// If nil, the default key function (Method + URL) is used
+	// If nil, DefaultCacheKeyFunc (Method + URL + hashed headers) is used
 	KeyFunc CacheKeyFunc
 
 	// CacheableMethods defines which HTTP methods can be cached
@@ -113,32 +115,33 @@ func CacheDisabled() *RequestCacheOptions {
 	}
 }
 
-// DefaultCacheKeyFunc generates a cache key from method and full URL
+// DefaultCacheKeyFunc generates a cache key from method, full URL and the
+// request headers. Headers are folded into a single SHA-256 digest so any
+// header that may select a different representation, such as Authorization,
+// Cookie or a custom API key header, varies the key without the values
+// themselves ever appearing in the key.
 func DefaultCacheKeyFunc(method, fullURL string, headers map[string]string) string {
 	key := strings.ToUpper(method) + ":" + fullURL
-
-	// Authentication and cookie headers commonly change the representation for
-	// the same URL. Hash their values so credentials do not appear in cache keys.
-	var varyHeaders []string
+	if len(headers) == 0 {
+		return key
+	}
+	pairs := make([]string, 0, len(headers))
 	for name, value := range headers {
-		if strings.EqualFold(name, "Authorization") || strings.EqualFold(name, "Cookie") {
-			sum := sha256.Sum256([]byte(value))
-			varyHeaders = append(varyHeaders, strings.ToLower(name)+"="+hex.EncodeToString(sum[:]))
-		}
+		pairs = append(pairs, strings.ToLower(name)+"="+value)
 	}
-	sort.Strings(varyHeaders)
-	if len(varyHeaders) > 0 {
-		key += ":" + strings.Join(varyHeaders, ":")
-	}
-	return key
+	sort.Strings(pairs)
+	sum := sha256.Sum256([]byte(strings.Join(pairs, "\n")))
+	return key + ":h=" + hex.EncodeToString(sum[:])
 }
 
 // MemoryCache is a thread-safe in-memory cache implementation
 type MemoryCache struct {
+	// hits and misses use atomic.Int64, which guarantees the 8-byte
+	// alignment that 32-bit platforms require for atomic access.
+	hits            atomic.Int64
+	misses          atomic.Int64
 	entries         map[string]*memoryCacheEntry
 	mu              sync.RWMutex
-	hits            int64
-	misses          int64
 	maxSize         int
 	cleanupInterval time.Duration
 	stopChan        chan struct{}
@@ -188,7 +191,7 @@ func (c *MemoryCache) Get(key string) *CacheEntry {
 	entry, exists := c.entries[key]
 	if !exists {
 		c.mu.RUnlock()
-		atomic.AddInt64(&c.misses, 1)
+		c.misses.Add(1)
 		return nil
 	}
 
@@ -199,11 +202,11 @@ func (c *MemoryCache) Get(key string) *CacheEntry {
 	if entryCopy.IsExpired() {
 		// Delete expired entry
 		c.Delete(key)
-		atomic.AddInt64(&c.misses, 1)
+		c.misses.Add(1)
 		return nil
 	}
 
-	atomic.AddInt64(&c.hits, 1)
+	c.hits.Add(1)
 	return entryCopy
 }
 
@@ -263,8 +266,8 @@ func (c *MemoryCache) Stats() CacheStats {
 	c.mu.RUnlock()
 
 	return CacheStats{
-		Hits:   atomic.LoadInt64(&c.hits),
-		Misses: atomic.LoadInt64(&c.misses),
+		Hits:   c.hits.Load(),
+		Misses: c.misses.Load(),
 		Size:   size,
 	}
 }
@@ -373,33 +376,29 @@ func shouldForceRefresh(options *RequestOptions) bool {
 	return options.Cache != nil && options.Cache.ForceRefresh
 }
 
-// generateCacheKey generates the cache key for a request
-func generateCacheKey(cacheConfig *CacheConfig, options *RequestOptions, fullURL string) string {
+// generateCacheKey generates the cache key for a request. headers are the
+// final outgoing request headers and bodyHash is the hex SHA-256 of the
+// request body, or empty when there is no body.
+func generateCacheKey(cacheConfig *CacheConfig, options *RequestOptions, fullURL string, headers map[string]string, bodyHash string) string {
 	// Check for custom key in request options
 	if options.Cache != nil && options.Cache.CustomKey != "" {
 		return options.Cache.CustomKey
 	}
 
-	headers := make(map[string]string, len(options.Headers)+1)
-	for name, value := range options.Headers {
-		headers[name] = value
-	}
-	if options.Auth != nil {
-		auth := options.Auth.Username + ":" + options.Auth.Password
-		headers["Authorization"] = "Basic " + basicAuth(auth)
+	if headers == nil {
+		headers = map[string]string{}
 	}
 
-	// Use custom key function if configured
+	var key string
 	if cacheConfig.KeyFunc != nil {
-		return cacheConfig.KeyFunc(options.Method, fullURL, headers)
+		key = cacheConfig.KeyFunc(options.Method, fullURL, headers)
+	} else {
+		key = DefaultCacheKeyFunc(options.Method, fullURL, headers)
 	}
-
-	// Use default key function
-	return DefaultCacheKeyFunc(options.Method, fullURL, headers)
-}
-
-func basicAuth(credentials string) string {
-	return base64.StdEncoding.EncodeToString([]byte(credentials))
+	if bodyHash != "" {
+		key += ":body=" + bodyHash
+	}
+	return key
 }
 
 // getCacheTTL determines the TTL for a cached response

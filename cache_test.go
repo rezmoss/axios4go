@@ -465,7 +465,7 @@ func TestGenerateCacheKey(t *testing.T) {
 		config := &CacheConfig{Cache: cache}
 		options := &RequestOptions{Method: "GET"}
 
-		key := generateCacheKey(config, options, "https://api.example.com/users")
+		key := generateCacheKey(config, options, "https://api.example.com/users", nil, "")
 		if key != "GET:https://api.example.com/users" {
 			t.Errorf("Unexpected key: %s", key)
 		}
@@ -480,7 +480,7 @@ func TestGenerateCacheKey(t *testing.T) {
 			},
 		}
 
-		key := generateCacheKey(config, options, "https://api.example.com/users")
+		key := generateCacheKey(config, options, "https://api.example.com/users", nil, "")
 		if key != "my-custom-key" {
 			t.Errorf("Expected custom key, got: %s", key)
 		}
@@ -495,7 +495,7 @@ func TestGenerateCacheKey(t *testing.T) {
 		}
 		options := &RequestOptions{Method: "GET"}
 
-		key := generateCacheKey(config, options, "https://api.example.com/users")
+		key := generateCacheKey(config, options, "https://api.example.com/users", nil, "")
 		if key != "custom-func:GET:https://api.example.com/users" {
 			t.Errorf("Unexpected key: %s", key)
 		}

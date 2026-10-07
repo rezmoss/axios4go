@@ -52,7 +52,7 @@ To install `axios4go`, use `go get`:
 go get -u github.com/rezmoss/axios4go
 ```
 
-**Note**: Requires Go 1.22.5 or later.
+**Note**: Requires Go 1.27.1 or later.
 
 ## Usage
 
@@ -199,6 +199,16 @@ options := &axios4go.RequestOptions{
 resp, err := axios4go.Get("https://api.example.com/data", options)
 ```
 
+`Protocol` must be `http`, `https`, `socks5` or `socks5h`, `Host` must be a bare hostname or IP, and `Port` must be between 1 and 65535. Proxy credentials are sent for both plain HTTP requests and HTTPS tunnels, and one connection pool is reused per proxy configuration.
+
+### Redirects and Credentials
+
+When a redirect leaves the original host (or its subdomains), or downgrades from `https` to `http`, axios4go drops every request header except `Accept`, `Accept-Language`, `Accept-Encoding`, `Content-Type`, `Content-Length`, `User-Agent`, `Cache-Control` and `Referer`. This prevents custom credential headers such as `X-Api-Key` from leaking to third parties, which `net/http` does not do on its own. Same-host redirects keep all headers.
+
+### Base URL Safety
+
+When a base URL is configured, the per-request `URL` is treated as a relative path and may not contain `..` segments (raw or percent-encoded). Requests that would escape the base path return an error.
+
 ### Response Caching
 
 axios4go supports response caching to reduce network calls. Caching is opt-in and disabled by default.
@@ -249,7 +259,7 @@ resp, err := client.Request(&axios4go.RequestOptions{
 
 #### Custom Cache Key
 
-The default cache key safely varies by `Authorization` and `Cookie` headers, using hashed values so credentials are not exposed in the key. A custom key function is responsible for including every header that changes the response.
+The default cache key is `METHOD:url` plus a SHA-256 digest of every outgoing request header, so any header that selects a different representation (`Authorization`, `Cookie`, `X-Api-Key`, ...) varies the key without the values appearing in it. The key is computed after request interceptors run, so credentials added by an interceptor are included. When a request has a body, a hash of the body is appended to the key. Cached entries never store `Set-Cookie`, and responses with `Cache-Control: no-store` are not cached. A custom key function receives the final request headers and is responsible for including every header that changes the response.
 
 ```go
 // Vary cached responses by tenant.
@@ -296,12 +306,12 @@ type Cache interface {
 - **Params**: URL query parameters (`map[string]string`)
 - **Body**: Request body (can be `string`, `[]byte`, or any JSON serializable object)
 - **Headers**: Custom headers (`map[string]string`)
-- **Timeout**: Request timeout in milliseconds
+- **Timeout**: Request timeout in milliseconds (negative values are rejected)
 - **Auth**: Basic authentication credentials (`&Auth{Username: "user", Password: "pass"}`)
 - **ResponseType** and **ResponseEncoding**: Reserved for API compatibility; response bodies are returned as bytes and can be decoded with `Response.JSON`
-- **MaxRedirects**: Maximum number of redirects to follow
-- **MaxContentLength**: Maximum allowed response content length
-- **MaxBodyLength**: Maximum allowed request body length
+- **MaxRedirects**: Maximum number of redirects to follow (negative values are rejected)
+- **MaxContentLength**: Maximum allowed response content length (negative values are rejected)
+- **MaxBodyLength**: Maximum allowed request body length (negative values are rejected)
 - **Decompress**: Enables automatic response decompression (default is true)
 - **DisableDecompression**: Explicitly disables automatic response decompression
 - **ValidateStatus**: Function to validate HTTP response status codes
@@ -345,7 +355,7 @@ resp, err := client.Request(options)
 ## Maintenance and Releases
 
 - Dependabot checks Go modules and GitHub Actions monthly and opens grouped update pull requests when updates exist.
-- CI runs monthly as a health check and on every pull request, testing Go 1.22.5 and the current stable Go release.
+- CI runs monthly as a health check and on every pull request, testing Go 1.27.1 and the current stable Go release.
 - Release Please maintains the changelog and a semantic-version release pull request from Conventional Commit messages.
 - Merging a Release Please pull request creates the version tag and GitHub release. Empty calendar-based releases are not created.
 

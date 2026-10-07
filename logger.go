@@ -40,6 +40,25 @@ type DefaultLogger struct {
 	options LogOptions
 }
 
+// DefaultMaskedHeaders are hidden by loggers created with NewLogger.
+var DefaultMaskedHeaders = []string{
+	"Authorization",
+	"Proxy-Authorization",
+	"Cookie",
+	"Set-Cookie",
+	"X-Api-Key",
+	"X-Auth-Token",
+	"Api-Key",
+}
+
+// sanitizeLogValue neutralises CR and LF so a header value cannot forge
+// additional log lines.
+var logValueSanitizer = strings.NewReplacer("\r", "\\r", "\n", "\\n")
+
+func sanitizeLogValue(v string) string {
+	return logValueSanitizer.Replace(v)
+}
+
 func NewDefaultLogger(options LogOptions) *DefaultLogger {
 	if options.Output == nil {
 		options.Output = os.Stdout
@@ -65,7 +84,8 @@ func (l *DefaultLogger) LogRequest(req *http.Request, level LogLevel) {
 	var buf strings.Builder
 	timestamp := time.Now().Format(l.options.TimeFormat)
 
-	fmt.Fprintf(&buf, "[%s] REQUEST: %s %s\n", timestamp, req.Method, req.URL)
+	// Redacted hides any password embedded in the URL userinfo.
+	fmt.Fprintf(&buf, "[%s] REQUEST: %s %s\n", timestamp, req.Method, req.URL.Redacted())
 
 	if l.options.IncludeHeaders {
 		buf.WriteString("Headers:\n")
@@ -73,7 +93,7 @@ func (l *DefaultLogger) LogRequest(req *http.Request, level LogLevel) {
 			if l.isHeaderMasked(key) {
 				fmt.Fprintf(&buf, "  %s: [MASKED]\n", key)
 			} else {
-				fmt.Fprintf(&buf, "  %s: %s\n", key, strings.Join(vals, ", "))
+				fmt.Fprintf(&buf, "  %s: %s\n", sanitizeLogValue(key), sanitizeLogValue(strings.Join(vals, ", ")))
 			}
 		}
 	}
@@ -110,7 +130,7 @@ func (l *DefaultLogger) LogResponse(resp *http.Response, body []byte, duration t
 			if l.isHeaderMasked(key) {
 				fmt.Fprintf(&buf, "  %s: [MASKED]\n", key)
 			} else {
-				fmt.Fprintf(&buf, "  %s: %s\n", key, strings.Join(vals, ", "))
+				fmt.Fprintf(&buf, "  %s: %s\n", sanitizeLogValue(key), sanitizeLogValue(strings.Join(vals, ", ")))
 			}
 		}
 	}
@@ -149,7 +169,7 @@ func NewLogger(level LogLevel) Logger {
 	return NewDefaultLogger(LogOptions{
 		Level:          level,
 		MaxBodyLength:  1000,
-		MaskHeaders:    []string{"Authorization", "Cookie", "Set-Cookie"},
+		MaskHeaders:    append([]string(nil), DefaultMaskedHeaders...),
 		Output:         os.Stdout,
 		TimeFormat:     time.RFC3339,
 		IncludeBody:    true,
