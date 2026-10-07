@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.0](https://github.com/rezmoss/axios4go/compare/v0.6.9...v1.0.0) (2026-10-07)
+
+
+### ⚠ BREAKING CHANGES
+
+* minimum supported Go version is now 1.27.1. The default cache key now varies on all request headers, so existing cache entries will miss once after upgrading.
+
+### Features
+
+* harden client security and require Go 1.27.1 ([605c454](https://github.com/rezmoss/axios4go/commit/605c45423115e945580cf4e2a44300d63c6feaf4))
+
 ## [0.6.9](https://github.com/rezmoss/axios4go/compare/v0.6.8...v0.6.9) (2026-09-06)
 
 
